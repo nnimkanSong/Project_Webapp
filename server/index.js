@@ -20,11 +20,3 @@ app.get('/api', async (req, res) => {
 });
 
 app.listen(5000, () => console.log('Backend running on port 5000'));
-app.get('/api/dbcheck', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT NOW()');
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).send('Database connection failed');
-  }
-});
