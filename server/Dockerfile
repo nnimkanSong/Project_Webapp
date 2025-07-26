@@ -1,6 +1,7 @@
-FROM node:18
+FROM node:20
 WORKDIR /usr/src/app
 COPY package*.json ./
+RUN npm install -g nodemon
 RUN npm install
 COPY . .
-CMD ["npm", "start"]
+CMD ["nodemon", "app.js"]

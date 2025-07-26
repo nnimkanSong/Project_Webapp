@@ -13,7 +13,7 @@ services:
   server:
     build: ./server
     ports:
-      - "5000:5000"
+      - "5001:5001"
     environment:
       - PGUSER=postgres
       - PGHOST=db
