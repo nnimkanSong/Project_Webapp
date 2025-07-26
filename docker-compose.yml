@@ -2,7 +2,7 @@ services:
   client:
     build: ./client
     volumes:
-      - /client
+      - ./client:/src/page
     ports:
       - "5173:5173"
     depends_on:
