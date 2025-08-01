@@ -4,7 +4,7 @@ services:
     volumes:
       - ./client:/src/page
     ports:
-      - "5173:5173"
+      - "5174:5174"
     depends_on:
       - server
     stdin_open: true
