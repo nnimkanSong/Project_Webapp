@@ -25,7 +25,7 @@ app.use(express.json());
 
 const bcrypt = require('bcrypt');
 
-app.post('/api/register', async (req, res) => {
+app.post('/api/create', async (req, res) => {
   const { username, email, password } = req.body;
 
   try {
