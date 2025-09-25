@@ -12,10 +12,10 @@ function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-function isStrongPassword(password) {
-  // >=8 ตัว, มี a-z, A-Z, 0-9, และอักษรพิเศษ
-  return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/.test(password);
-}
+// function isStrongPassword(password) {
+//   // >=8 ตัว, มี a-z, A-Z, 0-9, และอักษรพิเศษ
+//   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/.test(password);
+// }
 
 // ===== REGISTER (ไม่สร้าง User ทันที) =====
 router.post('/register', async (req, res) => {
@@ -23,11 +23,11 @@ router.post('/register', async (req, res) => {
 
   try {
     // strong password
-    if (!isStrongPassword(password)) {
-      return res.status(400).json({
-        error: 'Password must be at least 8 chars and include upper, lower, number, and special char'
-      });
-    }
+    // if (!isStrongPassword(password)) {
+    //   return res.status(400).json({
+    //     error: 'Password must be at least 8 chars and include upper, lower, number, and special char'
+    //   });
+    // }
 
     // ห้ามซ้ำทั้งใน User และ PendingUser
     const existsUser = await User.findOne({ email });
@@ -41,7 +41,7 @@ router.post('/register', async (req, res) => {
     // เตรียม OTP
     const otp = generateOTP();
     const otpHash = await bcrypt.hash(otp, 10);
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 นาที
+    const expiresAt = new Date(Date.now() + 3 * 60 * 1000); 
 
     // บันทึกลง PendingUser เท่านั้น
     await PendingUser.create({
@@ -58,7 +58,7 @@ router.post('/register', async (req, res) => {
         <h2>Verify your email</h2>
         <p>Your OTP is:</p>
         <div style="font-size:24px;font-weight:700;letter-spacing:4px">${otp}</div>
-        <p>This code will expire in 10 minutes.</p>
+        <p>This code will expire in 3 minutes.</p>
       </div>
     `;
     await sendEmail({ to: email, subject: 'Your OTP Code', html });
