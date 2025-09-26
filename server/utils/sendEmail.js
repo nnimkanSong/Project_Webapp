@@ -36,7 +36,6 @@ module.exports = async function sendEmail({ to, subject, html, text }) {
     subject,
     text: text || undefined,
     html,
-    // บาง SMTP เช็ค envelope เคร่ง -> กำหนดให้ชัด
     envelope: { from: FROM_ADDR, to: toAddr },
   };
 
