@@ -1,10 +1,10 @@
+// server/model/user.js
 const mongoose = require('mongoose')
-
 
 const UserSchema = new mongoose.Schema({
     user_id: {
         type: Number,
-        required: true,
+        required: false,
         uninque: true
     },
     username: {
@@ -35,4 +35,4 @@ const UserSchema = new mongoose.Schema({
     resetOtpAttempts: { type: Number, default: 0 }
 })
 
-module.exports = mongoose.model('User', UserSchema)
+module.exports = mongoose.model('User', UserSchema);
