@@ -1,4 +1,3 @@
-// server/router/auth.js
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -12,6 +11,10 @@ const router = express.Router();
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
+function isKMITLEmail(email) {
+  const regex = /^[a-zA-Z0-9._%+-]+@kmitl\.ac\.th$/;
+  return regex.test(email);
+}
 
 function isStrongPassword(password) {
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/.test(password);
@@ -21,14 +24,32 @@ router.post('/register', async (req, res) => {
   const { username, email, password } = req.body;
 
   try {
-    if (!isStrongPassword(password)) {
+  if (!isKMITLEmail(email)) {
+    return res.status(400).json({ error: "Email must be a KMITL email (@kmitl.ac.th)" });
+  }
+  if (!isStrongPassword(password)) {
       return res.status(400).json({
         error: 'Password must be at least 8 chars and include upper, lower, number, and special char'
       });
     }
 
+    try {
+    const { email } = req.body;
+
+    // ✅ ตรวจสอบว่ามี user ใช้อีเมลนี้แล้วหรือยัง
     const existsUser = await User.findOne({ email });
-    if (existsUser) return res.status(400).json({ error: 'Email already registered' });
+    if (existsUser) {
+      return res.status(400).json({ error: "Email already registered" });
+    }
+
+    // ถ้าไม่มี user ซ้ำ → ทำ logic ต่อ เช่น save user, ส่ง OTP ฯลฯ
+    res.status(201).json({ message: "OK, ready to create user" });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+
 
     await PendingUser.deleteOne({ email });
 
@@ -37,7 +58,6 @@ router.post('/register', async (req, res) => {
     const otp = generateOTP();
     const otpHash = await bcrypt.hash(otp, 10);
 
-    // ตั้งหมดอายุใน 3 นาทีข้างหน้า
     const expiresAt = new Date(Date.now() + 3 * 60 * 1000);
 
     await PendingUser.create({
@@ -106,7 +126,6 @@ router.post('/resend-otp', async (req, res) => {
 
     const otp = generateOTP();
     pending.otpHash = await bcrypt.hash(otp, 10);
-    // ขยายอายุ 10 นาทีจากตอนนี้
     pending.expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     await pending.save();
 
