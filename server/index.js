@@ -1,24 +1,33 @@
 const express = require('express');
-const mongoose = require('mongoose')
-const  cors = require('cors');
+const mongoose = require('mongoose');
+const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
 
-const authRoutes = require('./router/auth')
+// Routes & middleware
+const authRoutes = require('./router/auth');
 const bookingRoutes = require('./router/booking');
-//midleware
-app.use(cors({ origin: 'http://localhost:5174' }))
-app.use(express.json())
+const verify = require('./middleware/auth');
+const profileRoutes = require('./router/profile');
 
+// Middlewares
+app.use(cors({
+  origin: process.env.CLIENT_URL || 'http://localhost:5174',
+  credentials: true
+}));
+app.use(express.json());
+
+// DB
 mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('MongoDB connected'))
+  .catch((e) => console.error('MongoDB error:', e));
 
-app.use('/api/auth', authRoutes)
-app.use('/api', bookingRoutes);
-
-const port = process.env.PORT  || 5000;
-
-
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`)
-})
+// Routes
+app.use('/api/auth', authRoutes);           // public
+app.use('/api/booking', verify, bookingRoutes); // protected
+// เส้นอื่น ๆ เหมือนเดิม...
+app.use('/uploads', express.static('uploads')); // ให้เข้าถึงไฟล์ /uploads ด้วย URL
+app.use('/api/profile', profileRoutes);
+const port = process.env.PORT || 5000;
+app.listen(port, () => console.log(`Server running on port ${port}`));

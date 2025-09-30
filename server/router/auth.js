@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 
 const User = require('../model/user');
 const PendingUser = require('../model/pendingUser');
-const sendEmail = require('../utils/sendEmail');
+const sendEmail = require('../utils/sendEmail'); // คาดว่ามีอยู่แล้วในโปรเจ็กต์
 
 const router = express.Router();
 
@@ -12,52 +12,35 @@ function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 function isKMITLEmail(email) {
-  const regex = /^[a-zA-Z0-9._%+-]+@kmitl\.ac\.th$/;
-  return regex.test(email);
+  return /^[a-zA-Z0-9._%+-]+@kmitl\.ac\.th$/.test(email);
 }
-
 function isStrongPassword(password) {
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/.test(password);
 }
 
+// REGISTER (สร้าง Pending + ส่ง OTP)
 router.post('/register', async (req, res) => {
-  const { username, email, password } = req.body;
+  const { username, email, password, student_number } = req.body;
 
   try {
-  if (!isKMITLEmail(email)) {
-    return res.status(400).json({ error: "Email must be a KMITL email (@kmitl.ac.th)" });
-  }
-  if (!isStrongPassword(password)) {
+    if (!isKMITLEmail(email)) {
+      return res.status(400).json({ error: "Email must be a KMITL email (@kmitl.ac.th)" });
+    }
+    if (!isStrongPassword(password)) {
       return res.status(400).json({
         error: 'Password must be at least 8 chars and include upper, lower, number, and special char'
       });
     }
 
-    try {
-    const { email } = req.body;
-
-    // ✅ ตรวจสอบว่ามี user ใช้อีเมลนี้แล้วหรือยัง
     const existsUser = await User.findOne({ email });
-    if (existsUser) {
-      return res.status(400).json({ error: "Email already registered" });
-    }
+    if (existsUser) return res.status(400).json({ error: "Email already registered" });
 
-    // ถ้าไม่มี user ซ้ำ → ทำ logic ต่อ เช่น save user, ส่ง OTP ฯลฯ
-    res.status(201).json({ message: "OK, ready to create user" });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
-
-
+    // เคลียร์ pending เดิม
     await PendingUser.deleteOne({ email });
 
     const passwordHash = await bcrypt.hash(password, 10);
-
     const otp = generateOTP();
     const otpHash = await bcrypt.hash(otp, 10);
-
     const expiresAt = new Date(Date.now() + 3 * 60 * 1000);
 
     await PendingUser.create({
@@ -86,6 +69,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
+// VERIFY OTP -> สร้าง User จริง
 router.post('/verify-otp', async (req, res) => {
   const { email, otp } = req.body;
 
@@ -105,7 +89,8 @@ router.post('/verify-otp', async (req, res) => {
       username: pending.username,
       email: pending.email,
       password: pending.passwordHash,
-      isVerified: true
+      // จะอัปเดต student_number ตอน register ก็ได้ (ถ้ารับมาด้วย)
+      // student_number
     });
 
     await PendingUser.deleteOne({ email });
@@ -117,6 +102,7 @@ router.post('/verify-otp', async (req, res) => {
   }
 });
 
+// RESEND OTP
 router.post('/resend-otp', async (req, res) => {
   const { email } = req.body;
 
@@ -146,21 +132,35 @@ router.post('/resend-otp', async (req, res) => {
   }
 });
 
+// LOGIN -> ออก token
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
   try {
+    const email = String(req.body.email || '').trim().toLowerCase(); // ✅ normalize
+    const { password } = req.body;
+
     const user = await User.findOne({ email });
-    if (!user) return res.status(403).json({ error: 'Please verify your email first' });
+    if (!user) return res.status(400).json({ error: 'Invalid credentials' });
+
+    // (ถ้าใช้ isVerified)
+    if (user.isVerified === false) {
+      return res.status(403).json({ error: 'Please verify your email first' });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
 
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign(
+      { userId: user._id.toString() }, // ✅ ใช้ userId เป็นหลัก
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
     return res.json({ token });
   } catch (error) {
     console.error('Login error:', error);
     return res.status(500).json({ error: error.message });
   }
 });
+
 
 module.exports = router;
