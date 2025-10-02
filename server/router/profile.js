@@ -1,45 +1,112 @@
+// server/router/profile.js
 const express = require('express');
 const bcrypt = require('bcrypt');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 
 const auth = require('../middleware/auth');
 const User = require('../model/user');
+const cloudinary = require('../utils/cloudinary'); // ✅ ใช้ Cloudinary
+
 const router = express.Router();
 
-// จัดเก็บไฟล์ + ตรวจ mimetype + จำกัดขนาด
+/* ---------- Multer: เก็บไฟล์ชั่วคราวก่อนอัป ---------- */
+const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, 'uploads/'),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `u_${Date.now()}${ext}`);
-  }
+  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+  filename: (_req, file, cb) =>
+    cb(null, `u_${Date.now()}${path.extname(file.originalname)}`),
 });
 const fileFilter = (_req, file, cb) => {
   if (/^image\/(png|jpe?g|gif|webp)$/.test(file.mimetype)) cb(null, true);
   else cb(new Error('Only image files are allowed'));
 };
-const upload = multer({ storage, fileFilter, limits: { fileSize: 2 * 1024 * 1024 } });
-
-// GET /api/profile/me
-router.get('/me', auth, async (req, res) => {
-  const user = await User.findById(req.user.id).select('username email student_number photoUrl user_type');
-  if (!user) return res.status(404).json({ error: 'Not found' });
-  res.json(user);
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
 });
 
-// PUT /api/profile (แก้ได้เฉพาะ username, student_number, photoUrl)
+// helper: สร้าง URL สำหรับไฟล์เก่า (ถ้าเคยใช้ Google Drive)
+const VIEW_URL = (id) => `https://drive.google.com/uc?export=view&id=${id}`;
+
+/* ================== ROUTES ================== */
+
+/* ---------- POST /api/profile/photo (Cloudinary) ---------- */
+router.post('/photo', auth, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file' });
+
+    // อัปขึ้น Cloudinary
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: 'profile',
+      public_id: `u_${req.user.id}_${Date.now()}`,
+      resource_type: 'image',
+    });
+
+    // ลบไฟล์ชั่วคราว
+    try { fs.unlinkSync(req.file.path); } catch {}
+
+    // เก็บ URL ลง DB
+    await User.findByIdAndUpdate(req.user.id, {
+      $set: { photoUrl: result.secure_url },
+    });
+
+    return res.json({ url: result.secure_url });
+  } catch (err) {
+    console.error('Upload error:', err);
+    // ลบไฟล์ชั่วคราวหากยังอยู่
+    try { if (req.file?.path) fs.unlinkSync(req.file.path); } catch {}
+    return res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
+/* ---------- GET /api/profile/me ---------- */
+router.get('/me', auth, async (req, res) => {
+  const u = await User.findById(req.user.id)
+    .select('username email student_number photoUrl photoDriveFileId'); // เผื่อเคสเก่า
+
+  if (!u) return res.status(404).json({ error: 'Not found' });
+
+  // ถ้ามี photoUrl (ใหม่) ใช้เลย, ถ้าไม่มีแต่มี fileId (เก่า) ก็ render url ดูได้
+  const photoUrl = u.photoUrl
+    ? u.photoUrl
+    : (u.photoDriveFileId ? VIEW_URL(u.photoDriveFileId) : 'https://placehold.co/200x200?text=Profile');
+
+  res.json({
+    username: u.username,
+    email: u.email,
+    student_number: u.student_number || '',
+    photoUrl,
+  });
+});
+
+/* ---------- PUT /api/profile ---------- */
 router.put('/', auth, async (req, res) => {
-  const { username, student_number, photoUrl } = req.body;
+  const { username, student_number } = req.body;
 
   try {
     const updated = await User.findByIdAndUpdate(
       req.user.id,
-      { $set: { username, student_number, photoUrl } },
+      { $set: { username, student_number } },
       { new: true, runValidators: true }
-    ).select('username email student_number photoUrl user_type');
+    ).select('username email student_number photoUrl photoDriveFileId');
 
-    res.json(updated);
+    if (!updated) return res.status(404).json({ error: 'Not found' });
+
+    const photoUrl = updated.photoUrl
+      ? updated.photoUrl
+      : (updated.photoDriveFileId ? VIEW_URL(updated.photoDriveFileId) : 'https://placehold.co/200x200?text=Profile');
+
+    res.json({
+      username: updated.username,
+      email: updated.email,
+      student_number: updated.student_number || '',
+      photoUrl,
+    });
   } catch (e) {
     if (e?.code === 11000 && e?.keyPattern?.student_number) {
       return res.status(409).json({ error: 'student_number already in use' });
@@ -47,32 +114,6 @@ router.put('/', auth, async (req, res) => {
     console.error('Profile update error:', e);
     res.status(500).json({ error: 'Internal Server Error' });
   }
-});
-
-// POST /api/profile/photo (multipart/form-data)
-router.post('/photo', auth, upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file' });
-  const url = `/uploads/${req.file.filename}`;
-  await User.findByIdAndUpdate(req.user.id, { $set: { photoUrl: url } });
-  res.json({ url });
-});
-
-// POST /api/profile/change-password
-router.post('/change-password', auth, async (req, res) => {
-  const { oldPassword, newPassword } = req.body;
-  if (!oldPassword || !newPassword) {
-    return res.status(400).json({ error: 'oldPassword and newPassword are required' });
-  }
-
-  const user = await User.findById(req.user.id).select('password');
-  if (!user) return res.status(404).json({ error: 'Not found' });
-
-  const ok = await bcrypt.compare(oldPassword, user.password);
-  if (!ok) return res.status(400).json({ error: 'Old password is incorrect' });
-
-  const hash = await bcrypt.hash(newPassword, 10);
-  await User.findByIdAndUpdate(req.user.id, { $set: { password: hash } });
-  res.json({ ok: true });
 });
 
 module.exports = router;

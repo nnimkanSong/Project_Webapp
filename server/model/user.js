@@ -15,7 +15,7 @@ const UserSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
-  photoUrl: { 
+  photoUrl: {
     type: String,
     required: false,
     default: 'https://placehold.co/200x200'
