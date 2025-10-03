@@ -1,6 +1,6 @@
 // server/router/profile.js
 const express = require('express');
-const bcrypt = require('bcrypt');
+// const bcrypt = require('bcrypt'); // ❌ ไม่ได้ใช้ ลบทิ้ง
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -67,7 +67,7 @@ router.post('/photo', auth, upload.single('file'), async (req, res) => {
 /* ---------- GET /api/profile/me ---------- */
 router.get('/me', auth, async (req, res) => {
   const u = await User.findById(req.user.id)
-    .select('username email student_number photoUrl photoDriveFileId'); // เผื่อเคสเก่า
+    .select('username email student_number user_type photoUrl photoDriveFileId'); // ✅ เพิ่ม user_type
 
   if (!u) return res.status(404).json({ error: 'Not found' });
 
@@ -80,6 +80,7 @@ router.get('/me', auth, async (req, res) => {
     username: u.username,
     email: u.email,
     student_number: u.student_number || '',
+    user_type: u.user_type || 'user', // ✅ ส่ง user_type ให้หน้า Profile ใช้แสดงแทน password
     photoUrl,
   });
 });
@@ -91,9 +92,9 @@ router.put('/', auth, async (req, res) => {
   try {
     const updated = await User.findByIdAndUpdate(
       req.user.id,
-      { $set: { username, student_number } },
+      { $set: { username, student_number } }, // ❗️ไม่อนุญาตแก้ user_type ที่นี่
       { new: true, runValidators: true }
-    ).select('username email student_number photoUrl photoDriveFileId');
+    ).select('username email student_number user_type photoUrl photoDriveFileId'); // ✅ เพิ่ม user_type
 
     if (!updated) return res.status(404).json({ error: 'Not found' });
 
@@ -105,6 +106,7 @@ router.put('/', auth, async (req, res) => {
       username: updated.username,
       email: updated.email,
       student_number: updated.student_number || '',
+      user_type: updated.user_type || 'user', // ✅ ส่งกลับด้วยให้ front-end อัปเดต state
       photoUrl,
     });
   } catch (e) {

@@ -4,10 +4,13 @@ const jwt = require('jsonwebtoken');
 
 const User = require('../model/user');
 const PendingUser = require('../model/pendingUser');
-const sendEmail = require('../utils/sendEmail'); // คาดว่ามีอยู่แล้วในโปรเจ็กต์
+const sendEmail = require('../utils/sendEmail');
+const { OAuth2Client } = require('google-auth-library');
 
 const router = express.Router();
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
+/* -------------------------- helpers -------------------------- */
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
@@ -18,24 +21,26 @@ function isStrongPassword(password) {
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/.test(password);
 }
 
-// REGISTER (สร้าง Pending + ส่ง OTP)
+/* -------------------------- REGISTER ------------------------- */
 router.post('/register', async (req, res) => {
-  const { username, email, password, student_number } = req.body;
-
   try {
+    const username = String(req.body.username || '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
+    const student_number = req.body.student_number ?? null;
+
     if (!isKMITLEmail(email)) {
-      return res.status(400).json({ error: "Email must be a KMITL email (@kmitl.ac.th)" });
+      return res.status(400).json({ error: 'Email must be a KMITL email (@kmitl.ac.th)' });
     }
     if (!isStrongPassword(password)) {
       return res.status(400).json({
-        error: 'Password must be at least 8 chars and include upper, lower, number, and special char'
+        error: 'Password must be at least 8 chars and include upper, lower, number, and special char',
       });
     }
 
     const existsUser = await User.findOne({ email });
-    if (existsUser) return res.status(400).json({ error: "Email already registered" });
+    if (existsUser) return res.status(400).json({ error: 'Email already registered' });
 
-    // เคลียร์ pending เดิม
     await PendingUser.deleteOne({ email });
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -48,7 +53,8 @@ router.post('/register', async (req, res) => {
       email,
       passwordHash,
       otpHash,
-      expiresAt
+      expiresAt,
+      student_number,
     });
 
     const html = `
@@ -59,7 +65,6 @@ router.post('/register', async (req, res) => {
         <p>This code will expire in 3 minutes.</p>
       </div>
     `;
-
     await sendEmail({ to: email, subject: 'Your OTP Code', html });
 
     return res.status(200).json({ message: 'OTP sent', email });
@@ -69,11 +74,12 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// VERIFY OTP -> สร้าง User จริง
+/* -------------------------- VERIFY OTP ----------------------- */
 router.post('/verify-otp', async (req, res) => {
-  const { email, otp } = req.body;
-
   try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const otp = String(req.body.otp || '').trim();
+
     const pending = await PendingUser.findOne({ email });
     if (!pending) return res.status(400).json({ error: 'No pending registration for this email' });
 
@@ -89,8 +95,11 @@ router.post('/verify-otp', async (req, res) => {
       username: pending.username,
       email: pending.email,
       password: pending.passwordHash,
-      // จะอัปเดต student_number ตอน register ก็ได้ (ถ้ารับมาด้วย)
-      // student_number
+      student_number: pending.student_number ?? null,
+      emailVerified: true,
+      verifiedAt: new Date(),
+      verificationMethod: 'email-link',
+      isKmitl: true,
     });
 
     await PendingUser.deleteOne({ email });
@@ -102,11 +111,11 @@ router.post('/verify-otp', async (req, res) => {
   }
 });
 
-// RESEND OTP
+/* -------------------------- RESEND OTP ----------------------- */
 router.post('/resend-otp', async (req, res) => {
-  const { email } = req.body;
-
   try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+
     const pending = await PendingUser.findOne({ email });
     if (!pending) return res.status(400).json({ error: 'No pending registration. Please register again.' });
 
@@ -132,28 +141,25 @@ router.post('/resend-otp', async (req, res) => {
   }
 });
 
-// LOGIN -> ออก token
+/* -------------------------- LOGIN ---------------------------- */
 router.post('/login', async (req, res) => {
   try {
-    const email = String(req.body.email || '').trim().toLowerCase(); // ✅ normalize
-    const { password } = req.body;
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
 
     const user = await User.findOne({ email });
     if (!user) return res.status(400).json({ error: 'Invalid credentials' });
 
-    // (ถ้าใช้ isVerified)
-    if (user.isVerified === false) {
+    if (user.emailVerified === false) {
       return res.status(403).json({ error: 'Please verify your email first' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
 
-    const token = jwt.sign(
-      { userId: user._id.toString() }, // ✅ ใช้ userId เป็นหลัก
-      process.env.JWT_SECRET,
-      { expiresIn: '1h' }
-    );
+    const token = jwt.sign({ userId: user._id.toString() }, process.env.JWT_SECRET, {
+      expiresIn: '1h',
+    });
 
     return res.json({ token });
   } catch (error) {
@@ -162,5 +168,65 @@ router.post('/login', async (req, res) => {
   }
 });
 
+/* --------------- VERIFY BY GOOGLE (Email only) --------------- */
+router.post('/verify-google-email', async (req, res) => {
+  try {
+    const expectedEmail = String(req.body.expectedEmail || '').trim().toLowerCase();
+    const credential = req.body.credential;
+
+    if (!credential || !expectedEmail) {
+      return res.status(400).json({ error: 'Missing credential or expectedEmail' });
+    }
+
+    const ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const email = String(payload?.email || '').toLowerCase();
+    const email_verified = payload?.email_verified;
+    const googleId = payload?.sub;
+
+    if (!email_verified) {
+      return res.status(400).json({ error: 'Email not verified by Google' });
+    }
+    if (email !== expectedEmail) {
+      return res.status(400).json({ error: 'Email mismatch' });
+    }
+
+    // (ออปชัน) จำกัดโดเมน kmitl
+    // if (!email.endsWith('@kmitl.ac.th')) return res.status(403).json({ error: 'Only @kmitl.ac.th allowed' });
+
+    // ✅ มี User แล้ว → อัปเดตธง
+    let user = await User.findOneAndUpdate(
+      { email },
+      {
+        $set: {
+          emailVerified: true,
+          verifiedAt: new Date(),
+          verificationMethod: 'google',
+          googleId,
+          isKmitl: email.endsWith('@kmitl.ac.th'),
+        },
+      },
+      { new: true }
+    );
+
+    // 🟨 ยังไม่มี User → mark ใน Pending (ถ้าใช้)
+    if (!user) {
+      const pending = await PendingUser.findOne({ email });
+      if (pending) {
+        pending.googleVerified = true; // (เพิ่มใน schema ของ PendingUser ถ้ายังไม่มี)
+        await pending.save();
+      }
+    }
+
+    return res.json({ email, verified: true });
+  } catch (err) {
+    console.error('verify-google-email error:', err);
+    return res.status(401).json({ error: 'Invalid Google token' });
+  }
+});
 
 module.exports = router;

@@ -37,7 +37,15 @@ const UserSchema = new mongoose.Schema({
   },
   resetOtpHash: String,
   resetOtpExpires: Date,
-  resetOtpAttempts: { type: Number, default: 0 }
+  resetOtpAttempts: { type: Number, default: 0 },
+
+  // ✅ ฟิลด์ใหม่สำหรับการยืนยันอีเมลด้วย Google
+  emailVerified: { type: Boolean, default: false },
+  verifiedAt: { type: Date, default: null },
+  verificationMethod: { type: String, enum: ['google', 'email-link', null], default: null },
+  googleId: { type: String, default: null },
+  isKmitl: { type: Boolean, default: false }
+
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', UserSchema);
