@@ -26,9 +26,10 @@ mongoose.connect(process.env.MONGO_URI)
 // Routes
 app.use('/api/auth', authRoutes);           // public
 app.use('/api/booking', verify, bookingRoutes); // protected
+app.use("/api/bookings", require("./router/booking"));
 // เส้นอื่น ๆ เหมือนเดิม...
 app.use('/uploads', express.static('uploads')); // ให้เข้าถึงไฟล์ /uploads ด้วย URL
 app.use('/api/profile', profileRoutes);
 const port = process.env.PORT || 5000;
 app.listen(port, () => console.log(`Server running on port ${port}`));
-
+app.listen(5000, () => console.log("Server on :5000"));
