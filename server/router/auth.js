@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-
+const crypto = require('crypto');
 const User = require('../model/user');
 const PendingUser = require('../model/pendingUser');
 const sendEmail = require('../utils/sendEmail');
@@ -20,54 +20,56 @@ function isStrongPassword(password) {
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/.test(password);
 }
 
+
 router.post('/register', async (req, res) => {
-  const { username, email, password } = req.body;
+  const { username, email, password, studentNumber } = req.body;
 
   try {
-  if (!isKMITLEmail(email)) {
-    return res.status(400).json({ error: "Email must be a KMITL email (@kmitl.ac.th)" });
-  }
-  if (!isStrongPassword(password)) {
+    // ---- Validate input ----
+    if (!username || !email || !password || !studentNumber) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+    if (!isKMITLEmail(email)) {
+      return res.status(400).json({ error: "Email must be a KMITL email (@kmitl.ac.th)" });
+    }
+    if (!isStrongPassword(password)) {
       return res.status(400).json({
-        error: 'Password must be at least 8 chars and include upper, lower, number, and special char'
+        error: "Password must be at least 8 chars and include upper, lower, number, and special char"
       });
     }
-
-    try {
-    const { email } = req.body;
-
-    // ✅ ตรวจสอบว่ามี user ใช้อีเมลนี้แล้วหรือยัง
-    const existsUser = await User.findOne({ email });
-    if (existsUser) {
-      return res.status(400).json({ error: "Email already registered" });
+    // ปรับความยาวเลข นศ. ตามจริง (ตัวอย่าง: 8 หลัก)
+    if (!/^\d{8}$/.test(String(studentNumber))) {
+      return res.status(400).json({ error: "Student number must be 8 digits" });
     }
 
-    // ถ้าไม่มี user ซ้ำ → ทำ logic ต่อ เช่น save user, ส่ง OTP ฯลฯ
-    res.status(201).json({ message: "OK, ready to create user" });
+    // ---- Dup check ใน User (กันสมัครซ้ำ) ----
+    const existsUser = await User.findOne({
+      $or: [{ email }, { studentNumber }]
+    });
+    if (existsUser) {
+      return res.status(409).json({ error: "Email or student number already registered" });
+    }
 
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
+    // ---- เคลียร์ Pending เดิม (ถ้ามี) ----
+    await PendingUser.deleteMany({ $or: [{ email }, { studentNumber }] });
 
-
-    await PendingUser.deleteOne({ email });
-
+    // ---- เตรียมบันทึก PendingUser ----
     const passwordHash = await bcrypt.hash(password, 10);
-
-    const otp = generateOTP();
+    const otp = generateOTP();              // เช่น 6 หลัก
     const otpHash = await bcrypt.hash(otp, 10);
-
-    const expiresAt = new Date(Date.now() + 3 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 3 นาที
 
     await PendingUser.create({
       username,
       email,
+      studentNumber,
+      userType: 'user',     // ✅ ใส่ userType
       passwordHash,
       otpHash,
       expiresAt
     });
 
+    // ---- ส่งอีเมล OTP ----
     const html = `
       <div style="font-family:Arial,Helvetica,sans-serif">
         <h2>Verify your email</h2>
@@ -76,40 +78,78 @@ router.post('/register', async (req, res) => {
         <p>This code will expire in 3 minutes.</p>
       </div>
     `;
-
     await sendEmail({ to: email, subject: 'Your OTP Code', html });
 
     return res.status(200).json({ message: 'OTP sent', email });
   } catch (error) {
     console.error('Register error:', error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: "Server error" });
   }
 });
 
-router.post('/verify-otp', async (req, res) => {
-  const { email, otp } = req.body;
+// POST /api/auth/forgot-password
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
 
   try {
-    const pending = await PendingUser.findOne({ email });
-    if (!pending) return res.status(400).json({ error: 'No pending registration for this email' });
+    const normalizedEmail = String(email).trim().toLowerCase();
 
+    const OK_MSG = { message: "If an account exists, we've sent a reset code/link." };
+
+    if (!normalizedEmail) return res.status(400).json({ error: 'Email is required' });
+    if (!isKMITLEmail(normalizedEmail)) {
+      return res.status(400).json({ error: "Email must be a KMITL email (@kmitl.ac.th)" });
+    }
+
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user) return res.json(OK_MSG);
+    if (!user.isVerified) return res.json(OK_MSG);
+
+    const otp = generateOTP();
+    user.otpHash = await bcrypt.hash(otp, 10);
+    user.expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 นาที
+    await user.save();
+
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif">
+        <h2>Password Reset Code</h2>
+        <p>Your OTP is:</p>
+        <div style="font-size:24px;font-weight:700;letter-spacing:4px">${otp}</div>
+        <p>This code will expire in 10 minutes.</p>
+      </div>
+    `;
+    await sendEmail({ to: normalizedEmail, subject: 'Your Password Reset Code', html });
+
+    return res.json(OK_MSG);
+  } catch (err) {
+    console.error('forgot-password error:', err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+
+
+router.post('/verify-otp', async (req, res) => {
+  const { email, otp } = req.body;
+  try {
+    const pending = await PendingUser.findOne({ email });
+    if (!pending)
+      return res.status(400).json({ error: 'No pending registration for this email' });
     if (pending.expiresAt < new Date()) {
       await PendingUser.deleteOne({ email });
       return res.status(400).json({ error: 'OTP expired. Please register again.' });
     }
-
     const ok = await bcrypt.compare(otp, pending.otpHash);
     if (!ok) return res.status(400).json({ error: 'Invalid OTP' });
-
     const user = await User.create({
       username: pending.username,
       email: pending.email,
+      studentNumber: pending.studentNumber,
+      userType: pending.userType || 'user',
       password: pending.passwordHash,
       isVerified: true
     });
-
     await PendingUser.deleteOne({ email });
-
     return res.json({ message: 'Email verified. Account created.', userId: user._id });
   } catch (error) {
     console.error('Verify error:', error);
@@ -117,18 +157,92 @@ router.post('/verify-otp', async (req, res) => {
   }
 });
 
+router.post('/verify-reset-otp', async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const otp = String(req.body?.otp || '').trim();
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid email or OTP' });
+    }
+
+    if (!user.otpHash || !user.expiresAt) {
+      return res.status(400).json({ error: 'No OTP in progress. Please request a new code.' });
+    }
+
+    if (user.expiresAt < new Date()) {
+      user.otpHash = undefined;
+      user.expiresAt = undefined;
+      await user.save();
+      return res.status(400).json({ error: 'OTP expired. Please request a new code.' });
+    }
+
+    const ok = await bcrypt.compare(otp, user.otpHash);
+    if (!ok) {
+      return res.status(400).json({ error: 'Invalid OTP' });
+    }
+
+    // ✅ OTP ผ่าน → ออก resetToken แบบสุ่ม และเก็บ hash + อายุสั้น
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+    user.resetTokenHash = resetTokenHash;
+    user.resetTokenExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 นาที
+
+    // กัน reuse OTP: ล้างทันทีหลังผ่าน
+    user.otpHash = undefined;
+    user.expiresAt = undefined;
+
+    await user.save();
+
+    return res.json({ message: 'OTP verified', resetToken });
+  } catch (error) {
+    console.error('verify-reset-otp error:', error);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.post('/resend-reset-otp', async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const user = await User.findOne({ email });
+    if (!user || !user.isVerified) {
+      // ตอบกลางๆ ก็ได้ แต่ที่นี่ตอบ 400 ชัดเจน
+      return res.status(400).json({ error: 'Invalid email' });
+    }
+
+    const otp = (Math.floor(100000 + Math.random() * 900000)).toString();
+    user.otpHash = await bcrypt.hash(otp, 10);
+    user.expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    const html = `
+      <div style="font-family:Arial,Helvetica,sans-serif">
+        <h2>New Password Reset Code</h2>
+        <p>Your new OTP is:</p>
+        <div style="font-size:24px;font-weight:700;letter-spacing:4px">${otp}</div>
+        <p>This code will expire in 10 minutes.</p>
+      </div>
+    `;
+    await sendEmail({ to: email, subject: 'Your New Password Reset Code', html });
+
+    return res.json({ message: 'New OTP sent' });
+  } catch (error) {
+    console.error('resend-reset-otp error:', error);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
 router.post('/resend-otp', async (req, res) => {
   const { email } = req.body;
-
   try {
-    const pending = await PendingUser.findOne({ email });
-    if (!pending) return res.status(400).json({ error: 'No pending registration. Please register again.' });
-
-    const otp = generateOTP();
-    pending.otpHash = await bcrypt.hash(otp, 10);
+    const pending = await PendingUser.findOne({ email }); if (!pending)
+      return res.status(400).json({ error: 'No pending registration. Please register again.' });
+    const otp = generateOTP(); pending.otpHash = await bcrypt.hash(otp, 10);
     pending.expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     await pending.save();
-
     const html = `
       <div style="font-family:Arial,Helvetica,sans-serif">
         <h2>Verify your email (Resend)</h2>
@@ -138,13 +252,13 @@ router.post('/resend-otp', async (req, res) => {
       </div>
     `;
     await sendEmail({ to: email, subject: 'Your New OTP Code', html });
-
     return res.json({ message: 'New OTP sent' });
   } catch (error) {
     console.error('Resend error:', error);
     return res.status(500).json({ error: error.message });
   }
 });
+
 
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
@@ -155,12 +269,26 @@ router.post('/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
 
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    return res.json({ token });
-  } catch (error) {
-    console.error('Login error:', error);
-    return res.status(500).json({ error: error.message });
+    req.session.user = { id: user._id.toString(), email: user.email, role: user.role };
+    res.json({ ok: true, message: "Login success" });
+  } catch (err) {
+    next(err);
   }
 });
+
+router.get("/me", (req, res) => {
+  if (!req.session.user) return res.status(401).json({ ok: false });
+  res.json({ ok: true, user: req.session.user });
+});
+
+
+router.post("/logout", (req, res) => {
+  req.session.destroy((err) => {
+    res.clearCookie("sid");
+    if (err) return res.status(500).json({ ok: false });
+    res.json({ ok: true, message: "Logged out" });
+  });
+});
+
 
 module.exports = router;

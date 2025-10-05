@@ -10,14 +10,13 @@ const SMTP_PORT = Number((process.env.SMTP_PORT || '2525').trim());
 const SMTP_USER = (process.env.SMTP_USER || '').trim();
 const SMTP_PASS = (process.env.SMTP_PASS || '').trim();
 
-// รองรับทั้ง MAIL_FROM และ FROM_EMAIL
 const FROM_ADDR = (process.env.MAIL_FROM || process.env.FROM_EMAIL || '').trim();
-const FROM_NAME = (process.env.MAIL_FROM_NAME || 'No-Reply').trim();
+const FROM_NAME = (process.env.MAIL_FROM_NAME || 'KMITL-RBS-ADMIN').trim();
 
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
   port: SMTP_PORT,
-  secure: SMTP_PORT === 465, // 465=true, อื่นๆ=false
+  secure: SMTP_PORT === 465,
   auth: {
     user: SMTP_USER,
     pass: SMTP_PASS,
