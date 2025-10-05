@@ -4,6 +4,7 @@ const router = express.Router();
 const Booking = require('../model/book');
 const User = require('../model/user');
 const auth = require('../middleware/auth');
+const auth_feedback = require("../middleware/auth_feedback");
 
 // สร้างการจอง
 router.post('/', auth, async (req, res) => {
@@ -165,4 +166,32 @@ router.patch('/:id', auth, async (req, res) => {
   }
 });
 
+// ✅ ดึงข้อมูล student_number + room ล่าสุด ด้วย userId จาก token
+router.get("/latest", auth_feedback, async (req, res) => {
+  try {
+    const userId = req.userId;
+    if (!userId) return res.status(400).json({ error: "Missing userId in token" });
+
+    // 🔹 ดึง student_number จาก Users
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // 🔹 ดึง booking ล่าสุด โดยรองรับทั้ง userId และ userid
+    const latestBooking = await Booking.findOne({
+      $or: [{ userId: userId }, { userid: userId }],
+    }).sort({ createdAt: -1 });
+
+    console.log("✅ userId:", userId);
+    console.log("🧾 latestBooking:", latestBooking);
+
+    res.json({
+      student_number: user.student_number || "N/A",
+      room: latestBooking ? latestBooking.room : "N/A",
+    });
+  } catch (err) {
+    console.error("❌ Error fetching latest booking:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+  });
+  
 module.exports = router;
