@@ -1,23 +1,23 @@
+// server/router/booking.js
 const express = require('express');
 const router = express.Router();
 const Booking = require('../model/book');
 const User = require('../model/user');
 const auth = require('../middleware/auth');
 
-// ✅ สร้างการจอง (ของเดิม)
+// สร้างการจอง
 router.post('/', auth, async (req, res) => {
   try {
     const { room, date, startTime, endTime, people, objective } = req.body;
-
     if (!room || !date || !startTime || !endTime || !people || !objective) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ message: 'Missing required fields' });
     }
     if (endTime <= startTime) {
-      return res.status(400).json({ error: 'endTime must be after startTime' });
+      return res.status(400).json({ message: 'endTime must be after startTime' });
     }
 
     const user = await User.findById(req.user.id).select('username email student_number');
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
     const created = await Booking.create({
       userid: user._id,
@@ -30,7 +30,6 @@ router.post('/', auth, async (req, res) => {
       end_time: endTime,
       people: Number(people),
       objective
-      // status, tracking ใช้ค่า default
     });
 
     return res.status(201).json({
@@ -41,36 +40,33 @@ router.post('/', auth, async (req, res) => {
     });
   } catch (err) {
     console.error('Create booking error:', err);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ message: 'Internal Server Error' });
   }
 });
 
-// ✅ ของเดิม (admin/all) – คงไว้
+// (admin/all)
 router.get('/', auth, async (_req, res) => {
   try {
     const list = await Booking.find().sort({ createdAt: -1 }).limit(10);
     res.json(list);
   } catch (err) {
     console.error('Get booking error:', err);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(500).json({ message: 'Internal Server Error' });
   }
 });
 
-// ✅ ใหม่: เฉพาะของตัวเอง
+// เฉพาะของตัวเอง
 router.get('/me', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('username email student_number photoUrl');
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const rows = await Booking.find({ userid: req.user.id })
-      .sort({ createdAt: -1 })
-      .lean();
+    const rows = await Booking.find({ userid: req.user.id }).sort({ createdAt: -1 }).lean();
 
-    // แปลง field เป็น camelCase ให้ frontend ใช้ง่าย
     const bookings = rows.map(b => ({
       _id: b._id,
       room: b.room,
-      date: b.date, // ISO string/Date ให้ format ที่ frontend
+      date: b.date,
       startTime: b.start_time,
       endTime: b.end_time,
       people: b.people,
@@ -91,20 +87,24 @@ router.get('/me', auth, async (req, res) => {
     });
   } catch (err) {
     console.error('Get my bookings error:', err);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ message: 'Internal Server Error' });
   }
 });
 
-// ✅ ใหม่: ยกเลิกเฉพาะของตัวเอง
+// ✅ ยกเลิกเฉพาะของตัวเอง (หาให้เจอก่อน + เช็คเจ้าของ)
 router.patch('/:id/cancel', auth, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const bk = await Booking.findOne({ _id: id, userid: req.user.id });
-    if (!bk) return res.status(404).json({ error: 'ไม่พบรายการจองของคุณ' });
+    const bk = await Booking.findById(id);
+    if (!bk) return res.status(404).json({ message: 'ไม่พบรายการจองนี้' });
 
-    if (bk.status === 'done')
-      return res.status(400).json({ error: 'รายการที่เสร็จสิ้นแล้ว ยกเลิกไม่ได้' });
+    if (!bk.userid || String(bk.userid) !== String(req.user.id)) {
+      return res.status(403).json({ message: 'ไม่อนุญาตให้ยกเลิกรายการนี้' });
+    }
+
+    if (bk.status === 'done')  return res.status(400).json({ message: 'รายการที่เสร็จสิ้นแล้ว ยกเลิกไม่ได้' });
+    if (bk.status === 'cancel') return res.status(400).json({ message: 'ยกเลิกไปแล้ว' });
 
     bk.status = 'cancel';
     await bk.save();
@@ -125,7 +125,43 @@ router.patch('/:id/cancel', auth, async (req, res) => {
     });
   } catch (err) {
     console.error('Cancel booking error:', err);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    return res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+// Edit เฉพาะ people & objective
+router.patch('/:id', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { people, objective } = req.body;
+
+    if (people !== undefined) {
+      const n = Number(people);
+      if (!Number.isFinite(n) || n < 1) {
+        return res.status(400).json({ message: 'people ต้องเป็นตัวเลข >= 1' });
+      }
+    }
+    if (objective !== undefined && String(objective).trim().length === 0) {
+      return res.status(400).json({ message: 'objective ห้ามว่าง' });
+    }
+
+    const bk = await Booking.findById(id);
+    if (!bk) return res.status(404).json({ message: 'ไม่พบรายการจองนี้' });
+    if (!bk.userid || String(bk.userid) !== String(req.user.id)) {
+      return res.status(403).json({ message: 'ไม่อนุญาตให้แก้ไขรายการนี้' });
+    }
+    if (bk.status === 'cancel' || bk.status === 'done') {
+      return res.status(400).json({ message: 'สถานะนี้ไม่อนุญาตให้แก้ไข' });
+    }
+
+    if (people !== undefined)   bk.people = Number(people);
+    if (objective !== undefined) bk.objective = String(objective).trim();
+    await bk.save();
+
+    return res.json({ message: 'อัปเดตสำเร็จ', booking: bk });
+  } catch (err) {
+    console.error('Update booking error:', err);
+    return res.status(500).json({ message: 'Internal Server Error' });
   }
 });
 
