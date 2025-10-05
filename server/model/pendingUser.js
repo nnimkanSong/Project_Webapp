@@ -7,7 +7,9 @@ const PendingUserSchema = new mongoose.Schema({
   userType: { type: String, enum: ['user','admin'], default: 'user' }, 
   passwordHash:{ type: String, required: true },
   otpHash:     { type: String, required: true },
-  expiresAt:   { type: Date,   required: true }
+  expiresAt:   { type: Date,   required: true },
+  googleVerified: { type: Boolean, default: false }
+
 }, { timestamps: true });
 
 PendingUserSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
