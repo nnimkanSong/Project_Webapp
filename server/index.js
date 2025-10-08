@@ -13,7 +13,8 @@ const {
   PORT = 5000,
   MONGO_URI,
   CLIENT_URL = "http://localhost:5174",
-  COOKIE_SECURE = "false", // 'true' เมื่อหลัง HTTPS/Proxy
+  COOKIE_SECURE = "false",   // 'true' เมื่อหลัง HTTPS/Proxy
+  COOKIE_SAMESITE = "Lax",   // เผื่อใช้ในจุดอื่นให้สอดคล้องกับ auth.js
 } = process.env;
 
 if (!MONGO_URI) {
@@ -32,12 +33,13 @@ mongoose
 
 /* -------- Middlewares -------- */
 app.use(express.json());
+app.use(cookieParser());
 
 // ✅ เปิด CORS ให้ส่งคุกกี้ได้
 app.use(
   cors({
-    origin: CLIENT_URL, // e.g. 'http://localhost:5174'
-    credentials: true,
+    origin: CLIENT_URL,     // e.g. 'http://localhost:5174'
+    credentials: true,      // อนุญาตส่งคุกกี้/เฮดเดอร์รับรองตัวตน
   })
 );
 
@@ -45,8 +47,6 @@ app.use(
 if (COOKIE_SECURE === "true") {
   app.set("trust proxy", 1);
 }
-
-app.use(cookieParser());
 
 /* -------- Routes -------- */
 const authRoutes = require("./router/auth");
@@ -65,7 +65,6 @@ try {
   app.use("/api/admin/users", require("./router/admin_users"));
 } catch {}
 
-
 // เสิร์ฟไฟล์อัปโหลด
 app.use("/uploads", express.static("uploads"));
 
@@ -79,6 +78,6 @@ app.use((err, _req, res, _next) => {
 });
 
 /* -------- Start -------- */
-app.listen(PORT, () => {
+app.listen(Number(PORT), () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
