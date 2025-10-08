@@ -8,7 +8,7 @@ const BookingSchema = new mongoose.Schema(
     email: { type: String, required: false },
 
     // snapshot ผู้จอง ณ ตอนจอง
-    student_number: { type: String, required: false },
+    studentNumber: { type: String, required: false },
     student_name:   { type: String, required: false },
     student_email:  { type: String, required: false },
 
