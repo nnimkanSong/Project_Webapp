@@ -12,15 +12,9 @@ const auth = require("../middleware/auth"); // ✅ ตรวจ JWT จากค
 
 const router = express.Router();
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const { SESSION_COOKIE_NAME = "connect.sid" } = process.env;
 
-// ---- env + defaults ----
-const {
-  RESET_TTL_MIN = "10",                // นาทีที่ OTP reset มีผล
-  RESET_COOKIE_NAME = "__Host.reset",   // ใช้ __Host- เมื่อ serve บน HTTPS + no subdomain
-  COOKIE_SECURE = "false",              // 'true' ใน production HTTPS
-  COOKIE_SAMESITE = "Lax",              // 'None' ต้องคู่กับ secure:true
-  SESSION_COOKIE_NAME = "connect.sid",  // ไม่ใช้ session แล้ว แต่คงไว้เผื่อเคลียร์ cookie เดิม
-} = process.env;
+
 
 // ---- helpers ----
 function generateOTP() {
@@ -33,6 +27,16 @@ function isKMITLEmail(email) {
 function isStrongPassword(password) {
   return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/.test(String(password));
 }
+// --- top of file (หลัง require ต่าง ๆ) ---
+
+const {
+  RESET_TTL_MIN = "10",                // อายุ token นาที
+  RESET_COOKIE_NAME = "reset_token_dev",  // ใช้ __Host.* เมื่อรัน HTTPS + path=/ + ไม่มี domain
+  COOKIE_SECURE = "false",             // production(HTTPS) => 'true'
+  COOKIE_SAMESITE = "Lax",             // 'None' ต้องคู่กับ secure:true
+} = process.env;
+
+/** สร้าง cookie HttpOnly สำหรับ reset token */
 function setResetCookie(res, rawToken) {
   const maxAgeMs = Number(RESET_TTL_MIN) * 60 * 1000;
   res.cookie(RESET_COOKIE_NAME, rawToken, {
@@ -40,9 +44,11 @@ function setResetCookie(res, rawToken) {
     secure: COOKIE_SECURE === "true",
     sameSite: COOKIE_SAMESITE, // 'Lax' หรือ 'None'
     maxAge: maxAgeMs,
-    path: "/", // ทั้งแอป
+    path: "/",                 // ต้องเป็น / โดยเฉพาะถ้าใช้ __Host.*
   });
 }
+
+/** ลบ cookie หลังใช้งานหรือหมดอายุ */
 function clearResetCookie(res) {
   res.clearCookie(RESET_COOKIE_NAME, {
     httpOnly: true,
@@ -52,15 +58,15 @@ function clearResetCookie(res) {
   });
 }
 function jwtCookieOptions() {
-  const secure = COOKIE_SECURE === "true";
   return {
     httpOnly: true,
-    secure,
-    sameSite: secure ? "None" : "Lax",
-    maxAge: 24 * 60 * 60 * 1000, // 1 วัน
+    secure: false,
+    sameSite: "Lax",
     path: "/",
+    maxAge: 24 * 60 * 60 * 1000,
   };
 }
+
 function signJwt(userId) {
   return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: "1d" });
 }
@@ -272,43 +278,43 @@ router.post("/verify-reset-otp", async (req, res) => {
     if (!user) return res.status(400).json({ error: "Invalid email or OTP" });
 
     if (!user.resetOtpHash || !user.resetOtpExpires) {
-      return res
-        .status(400)
-        .json({ error: "No OTP in progress. Please request a new code." });
+      return res.status(400).json({ error: "No OTP in progress. Please request a new code." });
     }
     if (user.resetOtpExpires < new Date()) {
       user.resetOtpHash = undefined;
       user.resetOtpExpires = undefined;
       await user.save();
-      return res
-        .status(400)
-        .json({ error: "OTP expired. Please request a new code." });
+      return res.status(400).json({ error: "OTP expired. Please request a new code." });
     }
 
     const ok = await bcrypt.compare(otp, user.resetOtpHash);
     if (!ok) return res.status(400).json({ error: "Invalid OTP" });
 
-    const resetToken = crypto.randomBytes(32).toString("hex");
-    const resetTokenHash = crypto
-      .createHash("sha256")
-      .update(resetToken)
-      .digest("hex");
+    // สร้าง reset token (raw + hash)
+    const resetTokenRaw = crypto.randomBytes(32).toString("hex");
+    const resetTokenHash = crypto.createHash("sha256").update(resetTokenRaw).digest("hex");
 
     user.resetTokenHash = resetTokenHash;
-    user.resetTokenExpires = new Date(Date.now() + 10 * 60 * 1000);
+    user.resetTokenExpires = new Date(Date.now() + Number(RESET_TTL_MIN) * 60 * 1000);
     user.resetOtpHash = undefined;
     user.resetOtpExpires = undefined;
-
     await user.save();
 
-    // ✅ เก็บ token ใน HttpOnly cookie
-    setResetCookie(res, resetToken);
-    return res.json({ message: "OTP verified", via: "cookie" });
+    // ✅ เก็บ raw token ใน HttpOnly cookie แทนการส่งให้ FE
+    setResetCookie(res, resetTokenRaw);
+
+    return res.json({ message: "OTP verified" });
   } catch (error) {
     console.error("verify-reset-otp error:", error);
     return res.status(500).json({ error: "Server error" });
   }
 });
+
+
+
+
+
+
 
 router.post("/resend-reset-otp", async (req, res) => {
   try {
@@ -349,60 +355,135 @@ router.post("/resend-reset-otp", async (req, res) => {
 
 router.post("/reset-password", async (req, res) => {
   try {
-    const email = String(req.body?.email || "").trim().toLowerCase();
-    // ✅ ใช้ cookie ก่อน ถ้าไม่มีค่อย fallback เป็น body
-    const resetToken = String(
-      req.cookies?.[RESET_COOKIE_NAME] || req.body?.resetToken || ""
-    ).trim();
-    const newPassword = String(req.body?.newPassword || "");
-
+    const newPassword = String(req.body?.newPassword || "").trim();
+    if (!newPassword) {
+      return res.status(400).json({ error: "Password is required" });
+    }
     if (!isStrongPassword(newPassword)) {
       return res.status(400).json({ error: "Weak password" });
     }
-    const user = await User.findOne({ email });
-    if (!user || !user.resetTokenHash || !user.resetTokenExpires) {
-      return res.status(400).json({ error: "No reset token" });
+
+    const raw = req.cookies?.[process.env.RESET_COOKIE_NAME || "reset_token_dev"];
+    if (!raw) {
+      return res.status(400).json({ error: "Missing reset token (cookie not found)" });
     }
-    if (user.resetTokenExpires < new Date()) {
+
+    const givenHash = crypto.createHash("sha256").update(raw).digest("hex");
+
+    const user = await User.findOne({ resetTokenHash: givenHash }).select("email username resetTokenHash resetTokenExpires passwordChangedAt");
+    if (!user) return res.status(400).json({ error: "Invalid reset token" });
+    if (!user.resetTokenExpires || user.resetTokenExpires < new Date()) {
       user.resetTokenHash = undefined;
       user.resetTokenExpires = undefined;
       await user.save();
-      clearResetCookie(res);
+      res.clearCookie(process.env.RESET_COOKIE_NAME || "reset_token_dev", { path: "/" });
       return res.status(400).json({ error: "Reset token expired" });
     }
 
-    const givenHash = crypto
-      .createHash("sha256")
-      .update(resetToken)
-      .digest("hex");
-    if (givenHash !== user.resetTokenHash) {
-      return res.status(400).json({ error: "Invalid reset token" });
-    }
-
+    // ✅ Hash รหัสใหม่
     user.passwordHash = await bcrypt.hash(newPassword, 10);
     user.passwordChangedAt = new Date();
     user.sessionVersion = (user.sessionVersion || 0) + 1;
-
     user.resetTokenHash = undefined;
     user.resetTokenExpires = undefined;
     await user.save();
-    clearResetCookie(res);
+    
+    res.clearCookie(process.env.RESET_COOKIE_NAME || "reset_token_dev", { path: "/" });
+    
+    function escapeHtml(s = "") {
+      return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    }
+    (async () => {
+  try {
+    const to = String(user?.email || "").trim();
+    if (!to) {
+      console.warn("reset-password: skip sendEmail — user.email is empty");
+      return;
+    }
 
-    return res.json({ ok: true, message: "Password updated" });
-  } catch (err) {
-    console.error("reset-password error:", err);
+    const appName = process.env.APP_NAME || "KMITL-RBS";
+    const displayName =
+      (user.fullName && user.fullName.trim()) ||
+      (user.username && user.username.trim()) ||
+      to.split("@")[0];
+
+    // ใช้เวลาที่บันทึกใน DB (ตั้งไว้ก่อนหน้า: user.passwordChangedAt = new Date())
+    const when = user.passwordChangedAt ? new Date(user.passwordChangedAt) : new Date();
+
+    // แสดงทั้งเวลาไทยและ UTC
+    const tsTH = when.toLocaleString("th-TH", {
+      timeZone: "Asia/Bangkok",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const tsUTC = when.toISOString().replace("T", " ").replace("Z", " UTC");
+
+    const subject = `${appName}: Your password was changed`;
+
+    const html = `
+      <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.6; color: #0f172a">
+        <h2 style="margin:0 0 12px">${appName} — Password changed</h2>
+        <p>Hello ${escapeHtml(displayName)},</p>
+        <p>Your password was changed successfully.</p>
+        <p>
+          <b>Time (Asia/Bangkok)</b>: ${escapeHtml(tsTH)}<br/>
+          <b>Time (UTC)</b>: ${escapeHtml(tsUTC)}
+        </p>
+        <p>If this wasn’t you, please <b>reset your password immediately</b> and contact support.</p>
+        <hr style="border:none;border-top:1px solid #e2e8f0; margin:16px 0" />
+        <p style="font-size:12px; color:#64748b">This is an automated notification — please do not reply.</p>
+      </div>
+    `;
+
+    const text =
+`Hello ${displayName},
+
+Your password was changed successfully.
+
+Time (Asia/Bangkok): ${tsTH}
+Time (UTC): ${tsUTC}
+
+If this wasn't you, please reset your password immediately and contact support.`;
+
+    await sendEmail(to, subject, html, text);
+  } catch (mailErr) {
+    console.error("reset-password: sendEmail failed:", mailErr);
+  }
+})();
+
+    return res.json({ message: "Password has been reset" });
+  } catch (error) {
+    console.error("reset-password error:", error);
     return res.status(500).json({ error: "Server error" });
   }
 });
 
+
+
+
+
+
+
+
+
+
 /* ============================== LOGIN ============================ */
-// ✅ ใช้ JWT ในคุกกี้
 router.post("/login", async (req, res, next) => {
   try {
     const email = String(req.body.email || "").trim().toLowerCase();
     const password = String(req.body.password || "");
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).select("+passwordHash");
+    if (!user.passwordHash) {
+      console.error("Login: missing passwordHash for", email);
+      return res.status(500).json({ error: "Account misconfigured" });
+    }
+
     if (!user) return res.status(400).json({ error: "Invalid credentials" });
     if (!user.emailVerified)
       return res.status(403).json({ error: "Please verify your email first" });
@@ -418,8 +499,7 @@ router.post("/login", async (req, res, next) => {
   }
 });
 
-/* ============================ ME / LOGOUT ======================== */
-// ✅ ใช้ auth middleware (อ่าน JWT จากคุกกี้/Bearer)
+
 router.get("/me", auth, async (req, res) => {
   const u = await User.findById(req.user.id).select(
     "email userType sessionVersion"
@@ -509,31 +589,6 @@ router.post("/verify-google-email", async (req, res) => {
   }
 });
 
-/* -------- check current password (protected) -------- */
-router.post("/check-current-password", auth, async (req, res) => {
-  res.set("Cache-Control", "no-store");
 
-  try {
-    const { currentPassword } = req.body || {};
-    if (!currentPassword) {
-      return res.status(400).json({ error: "Missing currentPassword" });
-    }
-
-    const user = await User.findById(req.user.id).select("+passwordHash");
-    if (!user) {
-      return res.status(400).json({ error: "Invalid user" });
-    }
-
-    const ok = await bcrypt.compare(String(currentPassword), user.passwordHash);
-    if (!ok) {
-      return res.status(400).json({ error: "Current password incorrect" });
-    }
-
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error("check-current-password error:", err);
-    return res.status(500).json({ error: "Server error" });
-  }
-});
 
 module.exports = router;
