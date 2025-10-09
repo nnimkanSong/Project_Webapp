@@ -16,6 +16,11 @@ const {
   COOKIE_SECURE = "false",   // 'true' เมื่อหลัง HTTPS/Proxy
   COOKIE_SAMESITE = "Lax",   // เผื่อใช้ในจุดอื่นให้สอดคล้องกับ auth.js
 } = process.env;
+// Routes & middleware
+const authRoutes = require('./router/auth');
+const profileRoutes = require('./router/profile');
+const adminBookingRoutes = require('./router/admin_history');
+const feedbackRoutes = require("./router/feedback");
 
 if (!MONGO_URI) {
   console.error("❌ Missing MONGO_URI in .env");
@@ -49,7 +54,6 @@ if (COOKIE_SECURE === "true") {
 }
 
 /* -------- Routes -------- */
-const authRoutes = require("./router/auth");
 app.use("/api/auth", authRoutes);
 
 try {
@@ -63,6 +67,12 @@ try {
 } catch {}
 try {
   app.use("/api/admin/users", require("./router/admin_users"));
+} catch {}
+try {
+  app.use("/uploads", express.static('uploads'));
+} catch {}
+try {
+  app.use("/api/feedback", feedbackRoutes);
 } catch {}
 
 // เสิร์ฟไฟล์อัปโหลด
