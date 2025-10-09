@@ -21,6 +21,7 @@ const authRoutes = require('./router/auth');
 const profileRoutes = require('./router/profile');
 const adminBookingRoutes = require('./router/admin_history');
 const feedbackRoutes = require("./router/feedback");
+const admin_feedbackRoutes = require("./router/admin_feedback");
 
 if (!MONGO_URI) {
   console.error("❌ Missing MONGO_URI in .env");
@@ -74,6 +75,10 @@ try {
 try {
   app.use("/api/feedback", feedbackRoutes);
 } catch {}
+try {
+  app.use("/api/admin/feedbacks", admin_feedbackRoutes);
+} catch {}
+
 
 // เสิร์ฟไฟล์อัปโหลด
 app.use("/uploads", express.static("uploads"));
