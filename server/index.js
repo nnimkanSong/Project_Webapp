@@ -3,8 +3,8 @@ require("dotenv").config();
 
 const express = require("express");
 const mongoose = require("mongoose");
-const cors = require("cors");
 const cookieParser = require("cookie-parser");
+const cors = require("cors");
 
 const app = express();
 
@@ -13,8 +13,7 @@ const {
   PORT = 5000,
   MONGO_URI,
   CLIENT_URL = "http://localhost:5174",
-  COOKIE_SECURE = "false",   // 'true' เมื่อหลัง HTTPS/Proxy
-  COOKIE_SAMESITE = "Lax",   // เผื่อใช้ในจุดอื่นให้สอดคล้องกับ auth.js
+  COOKIE_SECURE = "false",   // เผื่อใช้ในจุดอื่นให้สอดคล้องกับ auth.js
 } = process.env;
 // Routes & middleware
 const authRoutes = require('./router/auth');
@@ -39,7 +38,7 @@ mongoose
 
 /* -------- Middlewares -------- */
 app.use(express.json());
-app.use(cookieParser());
+app.use(cookieParser()); // ต้องอยู่ก่อน app.use(router)
 
 // ✅ เปิด CORS ให้ส่งคุกกี้ได้
 app.use(
