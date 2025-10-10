@@ -18,7 +18,7 @@ router.post("/", auth, async (req, res) => {
 
     const feedback = new Feedback({
       userId: user._id,
-      student_number: user.student_number || "N/A",
+      studentNumber: user.studentNumber || "N/A",
       room,
       rating,
       comment,

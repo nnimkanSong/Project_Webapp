@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 const feedbackSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-  student_number: String,
+  studentNumber: String,
   room: String,
   rating: Number,
   comment: String,
