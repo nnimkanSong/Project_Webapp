@@ -5,6 +5,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
+const roomsRouter = require("./router/rooms");
 
 const app = express();
 
@@ -13,7 +14,8 @@ const {
   PORT = 5000,
   MONGO_URI,
   CLIENT_URL = "http://localhost:5174",
-  COOKIE_SECURE = "false",   // เผื่อใช้ในจุดอื่นให้สอดคล้องกับ auth.js
+  COOKIE_SECURE = "false",   // 'true' เมื่อหลัง HTTPS/Proxy
+  COOKIE_SAMESITE = "Lax",   // เผื่อใช้ในจุดอื่นให้สอดคล้องกับ auth.js
 } = process.env;
 
 if (!MONGO_URI) {
@@ -80,3 +82,14 @@ app.use((err, _req, res, _next) => {
 app.listen(Number(PORT), () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
+
+
+// const adminDash = require("./router/admin.dashboard");
+// app.use("/api", adminDash);
+
+
+// ✅ Mount routes
+app.use("/api/bookings", require("./router/booking"));
+app.use("/api/rooms", roomsRouter);
+const adminStats = require("./router/admin.stats");
+app.use("/api/admin", adminStats);

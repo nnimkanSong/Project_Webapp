@@ -387,45 +387,45 @@ router.post("/reset-password", async (req, res) => {
     user.resetTokenHash = undefined;
     user.resetTokenExpires = undefined;
     await user.save();
-    
+
     res.clearCookie(process.env.RESET_COOKIE_NAME || "reset_token_dev", { path: "/" });
-    
+
     function escapeHtml(s = "") {
       return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     }
     (async () => {
-  try {
-    const to = String(user?.email || "").trim();
-    if (!to) {
-      console.warn("reset-password: skip sendEmail — user.email is empty");
-      return;
-    }
+      try {
+        const to = String(user?.email || "").trim();
+        if (!to) {
+          console.warn("reset-password: skip sendEmail — user.email is empty");
+          return;
+        }
 
-    const appName = process.env.APP_NAME || "KMITL-RBS";
-    const displayName =
-      (user.fullName && user.fullName.trim()) ||
-      (user.username && user.username.trim()) ||
-      to.split("@")[0];
+        const appName = process.env.APP_NAME || "KMITL-RBS";
+        const displayName =
+          (user.fullName && user.fullName.trim()) ||
+          (user.username && user.username.trim()) ||
+          to.split("@")[0];
 
-    // ใช้เวลาที่บันทึกใน DB (ตั้งไว้ก่อนหน้า: user.passwordChangedAt = new Date())
-    const when = user.passwordChangedAt ? new Date(user.passwordChangedAt) : new Date();
+        // ใช้เวลาที่บันทึกใน DB (ตั้งไว้ก่อนหน้า: user.passwordChangedAt = new Date())
+        const when = user.passwordChangedAt ? new Date(user.passwordChangedAt) : new Date();
 
-    // แสดงทั้งเวลาไทยและ UTC
-    const tsTH = when.toLocaleString("th-TH", {
-      timeZone: "Asia/Bangkok",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false,
-    });
-    const tsUTC = when.toISOString().replace("T", " ").replace("Z", " UTC");
+        // แสดงทั้งเวลาไทยและ UTC
+        const tsTH = when.toLocaleString("th-TH", {
+          timeZone: "Asia/Bangkok",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        });
+        const tsUTC = when.toISOString().replace("T", " ").replace("Z", " UTC");
 
-    const subject = `${appName}: Your password was changed`;
+        const subject = `${appName}: Your password was changed`;
 
-    const html = `
+        const html = `
       <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.6; color: #0f172a">
         <h2 style="margin:0 0 12px">${appName} — Password changed</h2>
         <p>Hello ${escapeHtml(displayName)},</p>
@@ -440,8 +440,8 @@ router.post("/reset-password", async (req, res) => {
       </div>
     `;
 
-    const text =
-`Hello ${displayName},
+        const text =
+          `Hello ${displayName},
 
 Your password was changed successfully.
 
@@ -450,11 +450,11 @@ Time (UTC): ${tsUTC}
 
 If this wasn't you, please reset your password immediately and contact support.`;
 
-    await sendEmail(to, subject, html, text);
-  } catch (mailErr) {
-    console.error("reset-password: sendEmail failed:", mailErr);
-  }
-})();
+        await sendEmail(to, subject, html, text);
+      } catch (mailErr) {
+        console.error("reset-password: sendEmail failed:", mailErr);
+      }
+    })();
 
     return res.json({ message: "Password has been reset" });
   } catch (error) {
@@ -473,31 +473,41 @@ If this wasn't you, please reset your password immediately and contact support.`
 
 
 /* ============================== LOGIN ============================ */
+/* ============================== LOGIN ============================ */
 router.post("/login", async (req, res, next) => {
   try {
     const email = String(req.body.email || "").trim().toLowerCase();
     const password = String(req.body.password || "");
 
     const user = await User.findOne({ email }).select("+passwordHash");
+    if (!user) return res.status(400).json({ error: "Invalid credentials" });
     if (!user.passwordHash) {
       console.error("Login: missing passwordHash for", email);
       return res.status(500).json({ error: "Account misconfigured" });
     }
-
-    if (!user) return res.status(400).json({ error: "Invalid credentials" });
     if (!user.emailVerified)
       return res.status(403).json({ error: "Please verify your email first" });
 
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(400).json({ error: "Invalid credentials" });
 
-    const token = signJwt(user._id.toString());
+    // ✅ ทำเครื่องหมาย active
+    user.isActive = true;
+    user.lastLoginAt = new Date();
+    await user.save();
+
+    // ออก token + cookie
+    const token = jwt.sign({ userId: user._id.toString() }, process.env.JWT_SECRET, { expiresIn: "1d" });
+    // ถ้ามีฟังก์ชัน jwtCookieOptions() อยู่แล้ว แนะนำใช้ให้สอดคล้องทั้งระบบ
     res.cookie("token", token, jwtCookieOptions());
+
     return res.json({ ok: true, message: "Login success" });
   } catch (err) {
     next(err);
   }
 });
+
+
 
 
 router.get("/me", auth, async (req, res) => {
@@ -517,20 +527,37 @@ router.get("/me", auth, async (req, res) => {
   });
 });
 
-router.post("/logout", (_req, res) => {
-  // เคลียร์ JWT cookie
-  res.clearCookie("token", jwtCookieOptions());
-  // เคลียร์คุกกี้อื่น ๆ ที่อาจเหลือจากสมัย session (กันงง)
-  const known = [SESSION_COOKIE_NAME, "__Host-sid", "csrf", "theme"];
-  for (const name of known) {
-    res.clearCookie(name, {
-      path: "/",
-      sameSite: COOKIE_SAMESITE,
-      secure: COOKIE_SECURE === "true",
-    });
+// ต้องใส่ auth ตรงนี้เพื่อรู้ req.user.id
+router.post("/logout", auth, async (req, res) => {
+  try {
+    // ✅ ทำเครื่องหมาย non-active
+    const user = await User.findById(req.user.id);
+    if (user) {
+      user.isActive = false;
+      user.lastLogoutAt = new Date();
+      await user.save();
+    }
+
+    // เคลียร์ JWT cookie
+    res.clearCookie("token", jwtCookieOptions());
+
+    // เคลียร์คุกกี้อื่น ๆ ที่อาจเหลือจากสมัย session (กันงง)
+    const known = [SESSION_COOKIE_NAME, "__Host-sid", "csrf", "theme"];
+    for (const name of known) {
+      res.clearCookie(name, {
+        path: "/",
+        sameSite: process.env.COOKIE_SAMESITE || "Lax",
+        secure: (process.env.COOKIE_SECURE === "true"),
+      });
+    }
+
+    return res.json({ ok: true, message: "Logged out" });
+  } catch (err) {
+    console.error("Logout error:", err);
+    res.status(500).json({ error: "Server error" });
   }
-  return res.json({ ok: true, message: "Logged out" });
 });
+
 
 /* --------------- VERIFY BY GOOGLE (Email only) --------------- */
 router.post("/verify-google-email", async (req, res) => {
