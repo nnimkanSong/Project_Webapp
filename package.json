@@ -2,6 +2,7 @@
   "dependencies": {
     "@daypilot/daypilot-lite-react": "^4.7.0",
     "liquid-glass-react": "^1.1.1",
-    "lucide-react": "^0.545.0"
+    "lucide-react": "^0.545.0",
+    "react-icons": "^5.5.0"
   }
 }

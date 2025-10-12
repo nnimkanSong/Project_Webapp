@@ -77,6 +77,7 @@ try {
 try {
   app.use("/api/admin/feedbacks", admin_feedbackRoutes);
 } catch {}
+app.use('/api/tracking', require('./router/tracking'));
 
 
 // เสิร์ฟไฟล์อัปโหลด
