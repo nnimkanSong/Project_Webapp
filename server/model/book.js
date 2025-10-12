@@ -1,26 +1,24 @@
+// model/book.js
 const mongoose = require('mongoose');
 
 const BookingSchema = new mongoose.Schema(
   {
-    // อ้างผู้ใช้
     userid: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    username: { type: String, required: false },
-    email: { type: String, required: false },
+    username: { type: String },
+    email: { type: String },
 
-    // snapshot ผู้จอง ณ ตอนจอง
-    studentNumber: { type: String, required: false },
-    student_name:   { type: String, required: false },
-    student_email:  { type: String, required: false },
+    studentNumber: { type: String },
+    student_name:   { type: String },
+    student_email:  { type: String },
 
-    // รายละเอียดการจอง
-    room: { type: String, required: true, enum: ['E107', 'E111', 'E113', 'B317'] },
+    roomId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true },
+    roomCode: { type: String, required: true }, // ✅ snapshot เพื่ออ่านง่าย (E107, B317)
     date: { type: Date, required: true },
-    start_time: { type: String, required: true },
-    end_time: { type: String, required: true },
+    start_time: { type: String, required: true }, // 'HH:mm'
+    end_time: { type: String, required: true },   // 'HH:mm'
     people: { type: Number, required: true, min: 1 },
     objective: { type: String, required: true, trim: true },
 
-    // ✅ สำหรับ UI
     status: {
       type: String,
       enum: ['pending', 'active', 'done', 'cancel'],
@@ -32,5 +30,6 @@ const BookingSchema = new mongoose.Schema(
 );
 
 BookingSchema.index({ userid: 1, createdAt: -1 });
+BookingSchema.index({ roomId: 1, date: 1, start_time: 1, end_time: 1 }); // ✅ ช่วย query ชนกัน
 
 module.exports = mongoose.model('Booking', BookingSchema);

@@ -13,10 +13,11 @@ const userSchema = new mongoose.Schema({
     index: true,
     trim: true,
   },
-
+  isActive: { type: Boolean, default: false, index: true },
+  lastLoginAt: { type: Date },
+  lastLogoutAt: { type: Date },
   photoUrl: { type: String, default: 'https://placehold.co/200x200' },
 
-  // เก็บ hash เท่านั้น
   passwordHash: { type: String, required: true },
 
   studentNumber: {
@@ -32,13 +33,11 @@ const userSchema = new mongoose.Schema({
   emailVerified: { type: Boolean, default: false },
   verifiedAt: { type: Date, default: null },
 
-  // ✅ ให้เป็น optional string; ถ้าจะใช้จริงให้ใส่ 'google' หรือ 'email-link'
   verificationMethod: { type: String, enum: ['google', 'email-link'] },
 
   googleId: { type: String, default: null },
   isKmitl: { type: Boolean, default: false },
 
-  // ----- Password reset -----
   resetOtpHash: String,
   resetOtpExpires: Date,
   resetOtpAttempts: { type: Number, default: 0 },
@@ -50,8 +49,6 @@ const userSchema = new mongoose.Schema({
   passwordChangedAt: Date,
 }, { timestamps: true });
 
-// ❌ ลบสองบรรทัด TTL เดิม เพราะจะลบทั้งเอกสารผู้ใช้
-// userSchema.index({ resetOtpExpires: 1 }, { expireAfterSeconds: 0 });
-// userSchema.index({ resetTokenExpires: 1 }, { expireAfterSeconds: 0 });
+
 
 module.exports = mongoose.model('User', userSchema);
