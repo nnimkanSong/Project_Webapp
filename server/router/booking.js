@@ -222,7 +222,7 @@ router.get("/latest", auth_feedback, async (req, res) => {
     console.log("🧾 latestBooking:", latestBooking);
 
     res.json({
-      student_number: user.student_number || "N/A",
+      studentNumber: user.studentNumber || "N/A",
       room: latestBooking ? latestBooking.room : "N/A",
     });
   } catch (err) {
