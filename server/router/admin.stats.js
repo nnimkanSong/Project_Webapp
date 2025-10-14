@@ -102,7 +102,6 @@ router.get("/metrics", auth, requireAdmin, async (_req, res) => {
     }));
 
     const notifications = [
-      "ระบบ: ตัวอย่างแจ้งเตือน (เชื่อมจริงจาก logs ได้)",
       `รายการรออนุมัติวันนี้: ${pendingToday}`,
     ];
 
