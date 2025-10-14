@@ -63,6 +63,17 @@ function shapeBooking(bk) {
   };
 }
 
+router.get("/bookings/count", auth, requireAdmin, async (req, res) => {
+  try {
+    const status = String(req.query.status || "pending").toLowerCase();
+    const count = await Booking.countDocuments({ status });
+    res.json({ count });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "count_failed" });
+  }
+});
+
 /* ======================= GET: รายการทั้งหมด ======================= */
 // แนะนำให้ทำ pagination ในโลกจริง: ?page=&limit=
 router.get("/", auth, requireAdmin, async (req, res) => {
