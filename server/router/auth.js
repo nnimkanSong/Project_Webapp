@@ -32,8 +32,8 @@ function isStrongPassword(password) {
 const {
     RESET_TTL_MIN = "10",                // อายุ token นาที
     RESET_COOKIE_NAME = "reset_token_dev",  // ใช้ __Host.* เมื่อรัน HTTPS + path=/ + ไม่มี domain
-    COOKIE_SECURE = "false",             // production(HTTPS) => 'true'
-    COOKIE_SAMESITE = "Lax",             // 'None' ต้องคู่กับ secure:true
+    COOKIE_SECURE = "true",             // production(HTTPS) => 'true'
+    COOKIE_SAMESITE = "None",             // 'None' ต้องคู่กับ secure:true
 } = process.env;
 
 /** สร้าง cookie HttpOnly สำหรับ reset token */
@@ -60,8 +60,8 @@ function clearResetCookie(res) {
 function jwtCookieOptions() {
     return {
         httpOnly: true,
-        secure: false,
-        sameSite: "Lax",
+        secure: true,
+        sameSite: "None",
         path: "/",
         maxAge: 24 * 60 * 60 * 1000,
     };
@@ -546,7 +546,7 @@ router.post("/logout", auth, async (req, res) => {
         for (const name of known) {
             res.clearCookie(name, {
                 path: "/",
-                sameSite: process.env.COOKIE_SAMESITE || "Lax",
+                sameSite: process.env.COOKIE_SAMESITE,
                 secure: (process.env.COOKIE_SECURE === "true"),
             });
         }
