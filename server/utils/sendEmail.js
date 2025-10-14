@@ -12,7 +12,7 @@ const FROM_NAME = (process.env.MAIL_FROM_NAME || 'KMITL-RBS-ADMIN').trim();
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
   port: SMTP_PORT,
-  secure: SMTP_PORT === 465,
+  secure: SMTP_PORT,
   auth: { user: SMTP_USER, pass: SMTP_PASS },
   // logger: true,
   // debug: true,
