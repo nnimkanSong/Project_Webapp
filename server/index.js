@@ -25,10 +25,9 @@ const app = express();
 const {
   PORT = 5000,
   MONGO_URI,
-  // ✅ ใช้ origin ของ client (ห้ามใส่ path เช่น /login)
-  CLIENT_URL = "https://project-webapp-client.vercel.app",
-  COOKIE_SECURE = "true",   // Railway อยู่หลัง HTTPS → true แนะนำ
-  COOKIE_SAMESITE = "None", // ให้ตรงกับการส่งคุกกี้ข้ามโดเมน
+  CLIENT_URL = "https://project-webapp-client.vercel.app", // ✅ ไม่มี /login
+  COOKIE_SECURE = "true",
+  COOKIE_SAMESITE = "None",
 } = process.env;
 
 if (!MONGO_URI) {
@@ -38,10 +37,7 @@ if (!MONGO_URI) {
 
 /* -------- DB -------- */
 mongoose
-  .connect(MONGO_URI, {
-    maxPoolSize: 10,
-    serverSelectionTimeoutMS: 8000,
-  })
+  .connect(MONGO_URI, { maxPoolSize: 10, serverSelectionTimeoutMS: 8000 })
   .then(() => console.log("✅ MongoDB connected"))
   .catch((e) => {
     console.error("❌ MongoDB connection error:", e?.message || e);
@@ -50,22 +46,26 @@ mongoose
 
 /* -------- Middlewares -------- */
 app.use(express.json({ limit: "1mb" }));
-app.use(cookieParser()); // ต้องอยู่ก่อน app.use(router)
+app.use(cookieParser());
 
-// ✅ ถ้าอยู่หลัง HTTPS/Proxy และจะตั้ง cookie แบบ secure
-if (COOKIE_SECURE === "true") {
-  app.set("trust proxy", 1);
-}
+// ✅ อยู่หลัง Proxy/HTTPS (Render) เพื่อให้ Secure cookie ใช้ได้จริง
+if (COOKIE_SECURE === "true") app.set("trust proxy", 1);
 
-// ✅ เปิด CORS ให้ส่งคุกกี้ได้ (อนุญาตเฉพาะโดเมน frontend)
-app.use(
-  cors({
-    origin: CLIENT_URL, // e.g. 'https://project-webapp-client.vercel.app'
-    credentials: true,  // อนุญาตส่งคุกกี้/เฮดเดอร์รับรองตัวตน
-  })
-);
+// ✅ CORS + preflight ที่แน่นขึ้น
+const allowlist = [CLIENT_URL]; // อนุญาต origin นี้เท่านั้น
+const corsOptions = {
+  origin(origin, cb) {
+    const ok = !origin || allowlist.includes(origin);
+    cb(ok ? null : new Error("CORS blocked: " + origin), ok);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // ✅ ให้ preflight ผ่านทุกเส้นทาง
 
-/* -------- Static uploads (ephemeral on Railway) -------- */
+/* -------- Static uploads -------- */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* -------- Routes -------- */
@@ -91,5 +91,6 @@ app.use((err, _req, res, _next) => {
 
 /* -------- Start -------- */
 app.listen(Number(PORT), () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🌐 CORS allowed origin: ${CLIENT_URL}`);
 });
