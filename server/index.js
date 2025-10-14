@@ -6,6 +6,7 @@ const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const roomsRouter = require("./router/rooms");
+const roomMediaRoutes = require('./router/roomMedia');
 
 const app = express();
 
@@ -80,7 +81,7 @@ try {
   app.use("/api/admin/feedbacks", admin_feedbackRoutes);
 } catch {}
 app.use('/api/tracking', require('./router/tracking'));
-
+app.use('/api', roomMediaRoutes);
 
 // เสิร์ฟไฟล์อัปโหลด
 app.use("/uploads", express.static("uploads"));
