@@ -25,34 +25,21 @@ const app = express();
 const {
   PORT = 5000,
   MONGO_URI,
-  CLIENT_URL = "https://project-webapp-client.vercel.app", // ✅ origin เท่านั้น (ไม่มี /login)
-  COOKIE_SECURE = "true",   // ✅ อยู่หลัง HTTPS
-  COOKIE_SAMESITE = "None", // ✅ cookie ข้ามโดเมน
+  CLIENT_URL = "https://project-webapp-client.vercel.app",
+  COOKIE_SECURE = "true",
+  COOKIE_SAMESITE = "None",
 } = process.env;
 
-if (!MONGO_URI) {
-  console.error("❌ Missing MONGO_URI in .env");
-  process.exit(1);
-}
-
-/* -------- DB -------- */
-mongoose
-  .connect(MONGO_URI, { maxPoolSize: 10, serverSelectionTimeoutMS: 8000 })
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch((e) => {
-    console.error("❌ MongoDB connection error:", e?.message || e);
-    process.exit(1);
-  });
+console.log("[BOOT] starting server with PORT=", PORT);
+console.log("[BOOT] CLIENT_URL=", CLIENT_URL);
 
 /* -------- Middlewares -------- */
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
-
-// ✅ อยู่หลัง proxy เพื่อให้ Secure cookies ใช้ได้จริง
 if (COOKIE_SECURE === "true") app.set("trust proxy", 1);
 
-// ✅ CORS + preflight ครบถ้วน
-const allowlist = [CLIENT_URL]; // อนุญาต origin นี้เท่านั้น
+// CORS + preflight
+const allowlist = [CLIENT_URL];
 const corsOptions = {
   origin(origin, cb) {
     const ok = !origin || allowlist.includes(origin);
@@ -63,9 +50,14 @@ const corsOptions = {
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // ✅ ให้ OPTIONS ผ่านทุกเส้นทาง
+app.options("*", cors(corsOptions));
 
-/* -------- Static (ephemeral) -------- */
+// Health check (มาก่อนทุกอย่าง)
+app.get("/health", (_req, res) =>
+  res.json({ ok: true, time: new Date().toISOString() })
+);
+
+/* -------- Static -------- */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* -------- Routes -------- */
@@ -80,19 +72,26 @@ app.use("/api/feedback", feedbackRoutes);
 app.use("/api/admin/feedbacks", adminFeedbackRoutes);
 app.use("/api/tracking", trackingRoutes);
 
-/* -------- Health check -------- */
-app.get("/health", (_req, res) =>
-  res.json({ ok: true, time: new Date().toISOString() })
-);
-
 /* -------- Error handler -------- */
 app.use((err, _req, res, _next) => {
   console.error("Unhandled error:", err);
   res.status(500).json({ ok: false, error: err.message });
 });
 
-/* -------- Start -------- */
+/* -------- Start HTTP first -------- */
 app.listen(Number(PORT), () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌐 CORS allowed origin: ${CLIENT_URL}`);
+  // ต่อ DB แบบ async หลังจาก bind port สำเร็จแล้ว (กัน Render timeout)
+  if (!MONGO_URI) {
+    console.error("❌ Missing MONGO_URI in env — API up but DB disabled");
+    return;
+  }
+  mongoose
+    .connect(MONGO_URI, { maxPoolSize: 10, serverSelectionTimeoutMS: 8000 })
+    .then(() => console.log("✅ MongoDB connected"))
+    .catch((e) => {
+      console.error("❌ MongoDB connection error:", e?.message || e);
+      // ไม่ exit: ให้เว็บยังตอบ /health ได้ เพื่อไม่โดน “no open ports”
+    });
 });
