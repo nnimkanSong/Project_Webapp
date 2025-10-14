@@ -25,9 +25,9 @@ const app = express();
 const {
   PORT = 5000,
   MONGO_URI,
-  CLIENT_URL = "https://project-webapp-client.vercel.app", // ✅ ไม่มี /login
-  COOKIE_SECURE = "true",
-  COOKIE_SAMESITE = "None",
+  CLIENT_URL = "https://project-webapp-client.vercel.app", // ✅ origin เท่านั้น (ไม่มี /login)
+  COOKIE_SECURE = "true",   // ✅ อยู่หลัง HTTPS
+  COOKIE_SAMESITE = "None", // ✅ cookie ข้ามโดเมน
 } = process.env;
 
 if (!MONGO_URI) {
@@ -48,10 +48,10 @@ mongoose
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
-// ✅ อยู่หลัง Proxy/HTTPS (Render) เพื่อให้ Secure cookie ใช้ได้จริง
+// ✅ อยู่หลัง proxy เพื่อให้ Secure cookies ใช้ได้จริง
 if (COOKIE_SECURE === "true") app.set("trust proxy", 1);
 
-// ✅ CORS + preflight ที่แน่นขึ้น
+// ✅ CORS + preflight ครบถ้วน
 const allowlist = [CLIENT_URL]; // อนุญาต origin นี้เท่านั้น
 const corsOptions = {
   origin(origin, cb) {
@@ -63,9 +63,9 @@ const corsOptions = {
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // ✅ ให้ preflight ผ่านทุกเส้นทาง
+app.options("*", cors(corsOptions)); // ✅ ให้ OPTIONS ผ่านทุกเส้นทาง
 
-/* -------- Static uploads -------- */
+/* -------- Static (ephemeral) -------- */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 /* -------- Routes -------- */
@@ -81,7 +81,9 @@ app.use("/api/admin/feedbacks", adminFeedbackRoutes);
 app.use("/api/tracking", trackingRoutes);
 
 /* -------- Health check -------- */
-app.get("/health", (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+app.get("/health", (_req, res) =>
+  res.json({ ok: true, time: new Date().toISOString() })
+);
 
 /* -------- Error handler -------- */
 app.use((err, _req, res, _next) => {
