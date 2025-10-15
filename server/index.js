@@ -26,7 +26,7 @@ const {
   PORT = 5000,
   MONGO_URI,
   // ✅ ใช้ origin ของ client (ห้ามใส่ path เช่น /login)
-  CLIENT_URL = "https://project-webapp-client.vercel.app",
+  CLIENT_URL = "https://www.kmitl-rbs.online",
   COOKIE_SECURE = "true",   // Railway อยู่หลัง HTTPS → true แนะนำ
   COOKIE_SAMESITE = "None", // ให้ตรงกับการส่งคุกกี้ข้ามโดเมน
 } = process.env;
