@@ -322,8 +322,6 @@ router.get("/latest", auth_feedback, async (req, res) => {
       $or: [{ userId: userId }, { userid: userId }],
     }).sort({ createdAt: -1 });
 
-    console.log("✅ userId:", userId);
-    console.log("🧾 latestBooking:", latestBooking);
 
     res.json({
       studentNumber: user.studentNumber || "N/A",
