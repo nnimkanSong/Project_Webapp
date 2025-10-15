@@ -16,8 +16,8 @@ if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
 const transporter = nodemailer.createTransport({
   host: SMTP_HOST,
   port: SMTP_PORT,
-  secure: false,          // Mailtrap Live ใช้ STARTTLS (ไม่ใช่ SSL)
-  requireTLS: true,       // บังคับ TLS
+  secure: true,          // Mailtrap Live ใช้ STARTTLS (ไม่ใช่ SSL)
+  requireTLS: false,       // บังคับ TLS
   auth: {
     user: SMTP_USER,      // ต้องเป็น 'api'
     pass: SMTP_PASS,      // คือ Mailtrap API Token
