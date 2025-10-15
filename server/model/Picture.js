@@ -1,6 +1,9 @@
 const mongoose = require("mongoose");
+
 const PictureSchema = new mongoose.Schema({
-  url: { type: String, required: true }, // เก็บ secure_url จาก Cloudinary ที่คุณ “ใส่ไว้ใน DB แล้ว”
+  url: { type: String, required: true },
   caption: { type: String },
 }, { timestamps: true });
-module.exports = mongoose.model("Picture", PictureSchema);
+
+// แนะนำบังคับชื่อ collection ให้ชัด
+module.exports = mongoose.model("Picture", PictureSchema, "pictures");
