@@ -7,7 +7,7 @@ const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const path = require("path");
 
-// Routers
+// Routers (รวมทั้งสองฝั่ง)
 const authRoutes = require("./router/auth");
 const profileRoutes = require("./router/profile");
 const bookingRoutes = require("./router/booking");
@@ -19,13 +19,17 @@ const feedbackRoutes = require("./router/feedback");
 const adminFeedbackRoutes = require("./router/admin_feedback");
 const trackingRoutes = require("./router/tracking");
 
+// เพิ่มจากอีกสาขา
+const roomMediaRoutes = require("./router/roomMedia");
+const allImagesRoutes = require("./router/allImages");
+
 const app = express();
 
 /* -------- ENV -------- */
 const {
   PORT = 5000,
   MONGO_URI,
-  CLIENT_URL = "https://www.kmitl-rbs.online", // เดิม
+  CLIENT_URL = "https://www.kmitl-rbs.online",
   COOKIE_SECURE = "true",
   COOKIE_SAMESITE = "None",
 } = process.env;
@@ -56,26 +60,23 @@ if (COOKIE_SECURE === "true") {
   app.set("trust proxy", 1);
 }
 
-/* -------- CORS (แก้เฉพาะส่วนนี้) -------- */
-// อนุญาตหลายโดเมนได้ รวมทั้ง apex และ www
+/* -------- CORS -------- */
 const allowlist = new Set(
   [
     "https://kmitl-rbs.online",
     "https://www.kmitl-rbs.online",
-    "https://project-webapp-dku4.onrender.com", // เรียกตรง Render กรณีทดสอบ
-    CLIENT_URL,                                  // เผื่อกำหนดจาก .env
-    process.env.CLIENT_URL_2,                    // ตัวเลือกเพิ่ม (ถ้ามี)
-    process.env.CLIENT_URL_3,                    // ตัวเลือกเพิ่ม (ถ้ามี)
+    "https://project-webapp-dku4.onrender.com",
+    CLIENT_URL,
+    process.env.CLIENT_URL_2,
+    process.env.CLIENT_URL_3,
   ].filter(Boolean)
 );
-
-// เผื่อ preview ของ Vercel ชั่วคราว (ลบได้ถ้าไม่ใช้)
 const isVercelPreview = (origin = "") =>
   /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin);
 
 const corsOptions = {
   origin(origin, cb) {
-    if (!origin) return cb(null, true); // รองรับ curl/health/SSR
+    if (!origin) return cb(null, true);
     const ok = allowlist.has(origin) || isVercelPreview(origin);
     return cb(ok ? null : new Error("CORS blocked"), ok);
   },
@@ -83,9 +84,8 @@ const corsOptions = {
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 };
-
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // preflight
+app.options("*", cors(corsOptions));
 
 /* -------- Static uploads -------- */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
@@ -95,12 +95,19 @@ app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/rooms", roomsRouter);
+
 app.use("/api/admin/history", adminHistoryRoutes);
 app.use("/api/admin/users", adminUsersRoutes);
 app.use("/api/admin", adminStatsRoutes);
+
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api/admin/feedbacks", adminFeedbackRoutes);
+
 app.use("/api/tracking", trackingRoutes);
+
+// จากอีกสาขา
+app.use("/api", roomMediaRoutes);
+app.use("/api", allImagesRoutes);
 
 /* -------- Health check -------- */
 app.get("/health", (_req, res) =>
