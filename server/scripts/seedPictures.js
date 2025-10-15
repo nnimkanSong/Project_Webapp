@@ -20,11 +20,14 @@ const PICTURES = [
   { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760519719/S__14254084_bxrmee.jpg", caption: "E113 - มุมที่ 3" },
   { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760519987/S__14254107_x4gzfz.jpg", caption: "E113 - มุมที่ 4" },
   { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760519988/S__14254108_cwkmru.jpg", caption: "E113 - มุมที่ 5" },
-  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760459743/CHP-5992_ssyqkx.jpg", caption: "E111 - มุมที่ 1" },
-  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760459742/CHP-5996_yavbqp.jpg", caption: "E111 - มุมที่ 2" },
-  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760460528/CHP-5964_ezoyoa.jpg", caption: "E111 - มุมที่ 3" },
-  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760460460/CHP-5967_zmg27j.jpg", caption: "E111 - มุมที่ 4" },
-  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760460460/CHP-5969_ljcpd1.jpg", caption: "E111 - มุมที่ 3" },
+  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760520932/S__14254105_jqcsas.jpg", caption: "E111 - มุมที่ 1" },
+  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760520932/unnamed_1_iwtsfk.jpg", caption: "E111 - มุมที่ 2" },
+  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760520970/Gemini_Generated_Image_nlzd81nlzd81nlzd_ytwhxa.png", caption: "E111 - มุมที่ 3" },
+  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760520985/Gemini_Generated_Image_yqcprlyqcprlyqcp_dvr5nc.png", caption: "E111 - มุมที่ 4" },
+  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760455213/S__14139421_hu4epp.jpg", caption: "B317 - มุมที่ 1" },
+  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760455215/S__14139418_rh1t8q.jpg", caption: "B317 - มุมที่ 2" },
+  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760455215/S__14139419_glzne1.jpg", caption: "B317 - มุมที่ 3" },
+  { url: "https://res.cloudinary.com/dkgku29hb/image/upload/v1760455214/S__14139420_ybbzsp.jpg", caption: "B317 - มุมที่ 4" }
 ];
 
 (async () => {

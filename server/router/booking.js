@@ -327,7 +327,7 @@ router.get("/latest", auth_feedback, async (req, res) => {
 
     res.json({
       studentNumber: user.studentNumber || "N/A",
-      room: latestBooking ? latestBooking.room : "N/A",
+      room: latestBooking ? latestBooking.roomCode : "N/A",
     });
   } catch (err) {
     console.error("❌ Error fetching latest booking:", err);
