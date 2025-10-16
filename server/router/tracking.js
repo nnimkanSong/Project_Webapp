@@ -1,55 +1,65 @@
-// server/routes/tracking.js
+// server/router/tracking.js
 const express = require('express');
 const router = express.Router();
 const Booking = require('../model/book');
-const Room = require('../model/Rooms'); // ✅ import model ห้อง
+const Room = require('../model/room'); // ✅ ใช้ชื่อไฟล์/โมเดลเดียวกับที่อื่น
 
-// ฟังก์ชันแปลง Date + Time (เช่น "2025-10-11" + "14:30") → Date object
+// สร้าง Date ตอนนี้แบบโซนเวลาไทย (กัน timezone เพี้ยน)
+function nowInBKK() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+}
+
+// "YYYY-MM-DD (Date only)" + "HH:mm" -> Date
 function composeDateTime(dateOnly, hhmm) {
-  const [h, m] = (hhmm || '00:00').split(':').map(n => parseInt(n, 10) || 0);
+  const [h, m] = String(hhmm || '00:00').split(':').map(v => parseInt(v, 10) || 0);
   const d = new Date(dateOnly);
   d.setHours(h, m, 0, 0);
   return d;
 }
 
-// ฟังก์ชันคำนวณ snapshot ปัจจุบัน
 async function computeSnapshotNow() {
-  const now = new Date();
+  const now = nowInBKK();
 
-  // วันนี้
-  const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay   = new Date(now); endOfDay.setHours(23, 59, 59, 999);
+  const startOfDay = new Date(now); startOfDay.setHours(0,0,0,0);
+  const endOfDay   = new Date(now); endOfDay.setHours(23,59,59,999);
 
-  // ✅ ดึงห้องที่ active ทั้งหมด
-  const rooms = await Room.find({ active: true }).select("code");
+  // ✅ ดึงรายชื่อห้องที่ใช้งานอยู่ในระบบ (ถ้าไม่มี field active ให้เอา {} แทน)
+  const rooms = await Room.find({ /* active: true */ }).select('code').lean();
   const roomCodes = rooms.map(r => r.code);
 
-  // ✅ ดึง booking ที่ active ของวันนี้
+  // ✅ ดึง booking ของ "วันนี้" และสถานะ active
+  //    เลือกฟิลด์ที่ต้องใช้ให้ครบ: roomCode, roomId (เผื่อ populate ทีหลัง)
   const todaysActive = await Booking.find({
     status: 'active',
-    date: { $gte: startOfDay, $lte: endOfDay }
-  }).select('room date start_time end_time');
+    date: { $gte: startOfDay, $lte: endOfDay },
+  })
+  .select('roomCode roomId date start_time end_time')
+  .populate({ path: 'roomId', select: 'code', strictPopulate: false })
+  .lean();
 
-  // เช็กว่าห้องไหน "ใช้งานอยู่"
   const inUseSet = new Set();
+
   for (const bk of todaysActive) {
     const start = composeDateTime(bk.date, bk.start_time);
     let end = composeDateTime(bk.date, bk.end_time);
-    if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000); // ข้ามเที่ยงคืน
+    if (end <= start) end = new Date(end.getTime() + 24*60*60*1000); // ข้ามเที่ยงคืน
 
     if (start <= now && now < end) {
-      inUseSet.add(bk.room);
+      // ✅ หาชื่อห้อง (code) จาก booking: roomCode > roomId.code > (fallback เดิม)
+      const code =
+        bk.roomCode ||
+        (bk.roomId && typeof bk.roomId === 'object' ? bk.roomId.code : undefined);
+
+      if (code) inUseSet.add(code);
     }
   }
 
-  // (ถ้ามีระบบ renovation ในอนาคต ค่อยเติม)
-  const renoSet = new Set();
+  const renoSet = new Set(); // เผื่อใช้ในอนาคต
 
-  // ✅ สร้าง breakdown สำหรับทุกห้อง
-  const breakdown = roomCodes.map(room => {
-    if (renoSet.has(room)) return { room, status: 'renovation' };
-    if (inUseSet.has(room)) return { room, status: 'in-use' };
-    return { room, status: 'available' };
+  const breakdown = roomCodes.map(code => {
+    if (renoSet.has(code)) return { room: code, status: 'renovation' };
+    if (inUseSet.has(code)) return { room: code, status: 'in-use' };
+    return { room: code, status: 'available' };
   });
 
   const totalRooms = roomCodes.length;
@@ -60,13 +70,12 @@ async function computeSnapshotNow() {
   return { ts: now, totalRooms, available, inUse, renovation, breakdown };
 }
 
-// ✅ Route หลักให้ frontend เรียก
-router.get('/now', async (req, res) => {
+router.get('/now', async (_req, res) => {
   try {
     const snap = await computeSnapshotNow();
     res.json(snap);
   } catch (err) {
-    console.error(err);
+    console.error('tracking /now error:', err);
     res.status(500).json({ error: 'Failed to compute tracking' });
   }
 });
