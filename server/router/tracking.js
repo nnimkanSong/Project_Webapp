@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const Booking = require('../model/book');
-const Room = require('../model/room'); // ✅ ใช้ชื่อไฟล์/โมเดลเดียวกับที่อื่น
+const Room = require('../model/Rooms'); // ✅ ใช้ชื่อไฟล์/โมเดลเดียวกับที่อื่น
 
 // สร้าง Date ตอนนี้แบบโซนเวลาไทย (กัน timezone เพี้ยน)
 function nowInBKK() {
