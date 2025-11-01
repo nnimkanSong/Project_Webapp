@@ -1,4 +1,3 @@
-// server/index.js
 require("dotenv").config();
 
 const express = require("express");
@@ -7,7 +6,7 @@ const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const path = require("path");
 
-// Routers (รวมทั้งสองฝั่ง)
+// Routers
 const authRoutes = require("./router/auth");
 const profileRoutes = require("./router/profile");
 const bookingRoutes = require("./router/booking");
@@ -18,8 +17,6 @@ const adminStatsRoutes = require("./router/admin.stats");
 const feedbackRoutes = require("./router/feedback");
 const adminFeedbackRoutes = require("./router/admin_feedback");
 const trackingRoutes = require("./router/tracking");
-
-// เพิ่มจากอีกสาขา
 const roomMediaRoutes = require("./router/roomMedia");
 const allImagesRoutes = require("./router/allImages");
 
@@ -60,6 +57,17 @@ if (COOKIE_SECURE === "true") {
   app.set("trust proxy", 1);
 }
 
+/* -------- Security Headers -------- */
+app.use((req, res, next) => {
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
+  res.setHeader("Permissions-Policy", "browsing-topics=()");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  next();
+});
+
 /* -------- CORS -------- */
 const allowlist = new Set(
   [
@@ -71,14 +79,15 @@ const allowlist = new Set(
     process.env.CLIENT_URL_3,
   ].filter(Boolean)
 );
+
 const isVercelPreview = (origin = "") =>
   /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin);
 
 const corsOptions = {
-  origin(origin, cb) {
-    if (!origin) return cb(null, true);
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true); // allow server-to-server
     const ok = allowlist.has(origin) || isVercelPreview(origin);
-    return cb(ok ? null : new Error("CORS blocked"), ok);
+    cb(ok ? null : new Error("CORS blocked"), ok);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -90,22 +99,28 @@ app.options("*", cors(corsOptions));
 /* -------- Static uploads -------- */
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+/* -------- Cookie Example (Clean / Debug) -------- */
+app.post("/api/debug-cookie", (req, res) => {
+  res.cookie("debug_token", "demo123", {
+    httpOnly: true,
+    secure: COOKIE_SECURE === "true",
+    sameSite: COOKIE_SAMESITE,
+    maxAge: 1000 * 60 * 30,
+  });
+  res.json({ ok: true, msg: "Cookie set OK" });
+});
+
 /* -------- Routes -------- */
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/rooms", roomsRouter);
-
 app.use("/api/admin/history", adminHistoryRoutes);
 app.use("/api/admin/users", adminUsersRoutes);
 app.use("/api/admin", adminStatsRoutes);
-
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api/admin/feedbacks", adminFeedbackRoutes);
-
 app.use("/api/tracking", trackingRoutes);
-
-// จากอีกสาขา
 app.use("/api", roomMediaRoutes);
 app.use("/api", allImagesRoutes);
 
@@ -121,6 +136,6 @@ app.use((err, _req, res, _next) => {
 });
 
 /* -------- Start -------- */
-app.listen(Number(PORT), () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+app.listen(Number(PORT), () =>
+  console.log(`🚀 Server running on http://localhost:${PORT}`)
+);
