@@ -140,7 +140,6 @@ router.get("/metrics", auth, requireAdmin, async (_req, res) => {
 
     const notifications = [
       `รายการรออนุมัติวันนี้: ${pendingToday}`,
-      `จำนวนผู้ใช้งานปัจจุบัน: ${activeNow}/${totalUsers}`,
     ];
 
     return res.json({
