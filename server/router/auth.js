@@ -463,16 +463,6 @@ If this wasn't you, please reset your password immediately and contact support.`
     }
 });
 
-
-
-
-
-
-
-
-
-
-/* ============================== LOGIN ============================ */
 /* ============================== LOGIN ============================ */
 router.post("/login", async (req, res, next) => {
     try {
