@@ -48,21 +48,31 @@ router.get("/metrics", auth, requireAdmin, async (_req, res) => {
     const [
       totalRooms,
       totalBookingsMonth,
-      activeUsersMonth, // ผู้ใช้ที่มี booking ภายในเดือนนี้ (ของเดิม)
+      activeUsersMonth,
       pendingToday,
-      // rooms pie (นับตามห้องเดือนนี้)
       roomsAggRaw,
-      // recent bookings
       recent10,
-      // users now (active/non-active อิง login/logout)
       totalUsers,
       activeNow,
     ] = await Promise.all([
+      // 1️⃣ นับจำนวนห้องทั้งหมด
       Room.countDocuments({}),
+
+      // 2️⃣ จำนวน booking เดือนนี้ทั้งหมด
       Booking.countDocuments({ createdAt: { $gte: monthStart } }),
-      Booking.distinct("userid", { createdAt: { $gte: monthStart } }).then(ids => ids.length),
-      Booking.countDocuments({ status: "pending", createdAt: { $gte: todayStart, $lte: todayEnd } }),
-      // ✅ ใช้ roomId + lookup rooms เพื่อได้ code
+
+      // 3️⃣ ผู้ใช้ที่มี booking ภายในเดือนนี้ (distinct userid)
+      Booking.distinct("userid", { createdAt: { $gte: monthStart } }).then(
+        (ids) => ids.length
+      ),
+
+      // 4️⃣ จำนวน booking ที่สถานะ pending วันนี้ (case-insensitive)
+      Booking.countDocuments({
+        status: { $regex: /^pending$/i },
+        createdAt: { $gte: todayStart, $lte: todayEnd },
+      }),
+
+      // 5️⃣ Rooms pie chart (นับ booking ตามห้องในเดือนนี้)
       Booking.aggregate([
         { $match: { createdAt: { $gte: monthStart } } },
         { $group: { _id: "$roomId", value: { $sum: 1 } } },
@@ -75,44 +85,65 @@ router.get("/metrics", auth, requireAdmin, async (_req, res) => {
           },
         },
         { $unwind: { path: "$room", preserveNullAndEmptyArrays: true } },
-        { $project: { id: "$room.code", label: "$room.code", value: 1, _id: 0 } },
+        {
+          // ✅ กันค่า undefined เพื่อไม่ให้ Nivo Error
+          $project: {
+            _id: 0,
+            id: { $ifNull: ["$room.code", "Unknown"] },
+            label: { $ifNull: ["$room.code", "Unknown"] },
+            value: 1,
+          },
+        },
         { $sort: { value: -1 } },
       ]),
-      // recent 10 พร้อมชื่อห้อง
+
+      // 6️⃣ Booking ล่าสุด 10 รายการ (populate room.code)
       Booking.find({})
         .sort({ createdAt: -1 })
         .limit(10)
         .populate({ path: "roomId", select: "code" })
         .lean(),
-      // users now
+
+      // 7️⃣ Users ทั้งหมด
       User.countDocuments({}),
+
+      // 8️⃣ ผู้ใช้ที่ออนไลน์ตอนนี้ (isActive: true)
       User.countDocuments({ isActive: true }),
     ]);
 
+    // ====== แปลงข้อมูลให้อยู่ในรูปแบบที่ FE ใช้ได้ ======
+
     const nonActiveNow = Math.max(totalUsers - activeNow, 0);
 
-    // recent rows -> map
+    // ตาราง recent bookings
     const recent = recent10.map((b) => ({
-      id: String(b._id).slice(-6).toUpperCase(),
+      id: String(b._id || "").slice(-6).toUpperCase() || "—",
       room: b.roomId?.code || (typeof b.room === "string" ? b.room : "—"),
-      user: b.username || "—",
-      date: new Date(b.date || b.createdAt).toISOString().slice(0, 10),
-      time: `${b.start_time || b.startTime || "–"}–${b.end_time || b.endTime || "–"}`,
-      status: b.status || "pending",
+      user: b.username || b.user?.name || "—",
+      date: new Date(b.date || b.createdAt || Date.now())
+        .toISOString()
+        .slice(0, 10),
+      time: `${b.start_time || b.startTime || "—"}–${
+        b.end_time || b.endTime || "—"
+      }`,
+      status: String(b.status || "pending"),
     }));
 
+    // แจ้งเตือนเล็กน้อย
     const notifications = [
       `รายการรออนุมัติวันนี้: ${pendingToday}`,
+      `จำนวนผู้ใช้งานปัจจุบัน: ${activeNow}/${totalUsers}`,
     ];
 
+    // ====== ส่งออก ======
     return res.json({
       kpi: {
         totalRooms,
         totalBookingsMonth,
-        activeUsersMonth,   // ของเดิม = ผู้ใช้ที่มี booking ในเดือนนี้
+        activeUsersMonth,
         pendingToday,
         totalUsers,
-        activeNow,         // ผู้ใช้กำลัง active (อิง login/logout)
+        activeNow,
         nonActiveNow,
       },
       usersPie: [
@@ -128,6 +159,7 @@ router.get("/metrics", auth, requireAdmin, async (_req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 // ========== Monthly Line Series (by room) ==========
 router.get("/monthly-series", auth, requireAdmin, async (_req, res) => {
