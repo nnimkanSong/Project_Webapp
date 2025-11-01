@@ -11,11 +11,14 @@ const auth = require("../middleware/auth");
 // ===== Admin guard =====
 function requireAdmin(req, res, next) {
   const role = String(
-    req.user?.role ?? req.user?.userType ?? req.user?.user_type ?? req.user?.type ?? ""
+    req.user?.role ??
+    req.user?.userType ??
+    req.user?.user_type ??
+    req.user?.type ??
+    ""
   ).toLowerCase();
   const isAdmin = ["admin", "superadmin", "staff"].includes(role);
   if (isAdmin) return next();
-
   console.log("requireAdmin blocked. req.user =", req.user);
   return res.status(403).json({ error: "Admin only" });
 }
@@ -45,34 +48,25 @@ router.get("/metrics", auth, requireAdmin, async (_req, res) => {
     const todayEnd = endOfToday();
     const monthStart = startOfMonth();
 
+    // ------------- main queries -------------
     const [
       totalRooms,
       totalBookingsMonth,
       activeUsersMonth,
       pendingToday,
-      roomsAggRaw,
+      roomsAggThisMonth,
       recent10,
       totalUsers,
       activeNow,
     ] = await Promise.all([
-      // 1️⃣ นับจำนวนห้องทั้งหมด
       Room.countDocuments({}),
-
-      // 2️⃣ จำนวน booking เดือนนี้ทั้งหมด
       Booking.countDocuments({ createdAt: { $gte: monthStart } }),
-
-      // 3️⃣ ผู้ใช้ที่มี booking ภายในเดือนนี้ (distinct userid)
-      Booking.distinct("userid", { createdAt: { $gte: monthStart } }).then(
-        (ids) => ids.length
-      ),
-
-      // 4️⃣ จำนวน booking ที่สถานะ pending วันนี้ (case-insensitive)
+      Booking.distinct("userid", { createdAt: { $gte: monthStart } }).then((ids) => ids.length),
       Booking.countDocuments({
         status: { $regex: /^pending$/i },
         createdAt: { $gte: todayStart, $lte: todayEnd },
       }),
-
-      // 5️⃣ Rooms pie chart (นับ booking ตามห้องในเดือนนี้)
+      // rooms pie (เฉพาะเดือนนี้ – จะมี fallback ด้านล่าง)
       Booking.aggregate([
         { $match: { createdAt: { $gte: monthStart } } },
         { $group: { _id: "$roomId", value: { $sum: 1 } } },
@@ -86,56 +80,69 @@ router.get("/metrics", auth, requireAdmin, async (_req, res) => {
         },
         { $unwind: { path: "$room", preserveNullAndEmptyArrays: true } },
         {
-          // ✅ กันค่า undefined เพื่อไม่ให้ Nivo Error
           $project: {
             _id: 0,
-            id: { $ifNull: ["$room.code", "Unknown"] },
-            label: { $ifNull: ["$room.code", "Unknown"] },
+            id: { $ifNull: ["$room.code", { $toString: "$_id" }] },
+            label: { $ifNull: ["$room.code", { $toString: "$_id" }] },
             value: 1,
           },
         },
         { $sort: { value: -1 } },
       ]),
-
-      // 6️⃣ Booking ล่าสุด 10 รายการ (populate room.code)
+      // recent 10
       Booking.find({})
         .sort({ createdAt: -1 })
         .limit(10)
         .populate({ path: "roomId", select: "code" })
         .lean(),
-
-      // 7️⃣ Users ทั้งหมด
       User.countDocuments({}),
-
-      // 8️⃣ ผู้ใช้ที่ออนไลน์ตอนนี้ (isActive: true)
       User.countDocuments({ isActive: true }),
     ]);
 
-    // ====== แปลงข้อมูลให้อยู่ในรูปแบบที่ FE ใช้ได้ ======
+    // ---------- fallback: last 30 days ----------
+    let roomsPie = roomsAggThisMonth;
+    if (!roomsPie.length) {
+      const last30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      roomsPie = await Booking.aggregate([
+        { $match: { createdAt: { $gte: last30 } } },
+        { $group: { _id: "$roomId", value: { $sum: 1 } } },
+        {
+          $lookup: {
+            from: "rooms",
+            localField: "_id",
+            foreignField: "_id",
+            as: "room",
+          },
+        },
+        { $unwind: { path: "$room", preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            _id: 0,
+            id: { $ifNull: ["$room.code", { $toString: "$_id" }] },
+            label: { $ifNull: ["$room.code", { $toString: "$_id" }] },
+            value: 1,
+          },
+        },
+        { $sort: { value: -1 } },
+      ]);
+    }
 
     const nonActiveNow = Math.max(totalUsers - activeNow, 0);
 
-    // ตาราง recent bookings
     const recent = recent10.map((b) => ({
       id: String(b._id || "").slice(-6).toUpperCase() || "—",
       room: b.roomId?.code || (typeof b.room === "string" ? b.room : "—"),
       user: b.username || b.user?.name || "—",
-      date: new Date(b.date || b.createdAt || Date.now())
-        .toISOString()
-        .slice(0, 10),
-      time: `${b.start_time || b.startTime || "—"}–${
-        b.end_time || b.endTime || "—"
-      }`,
+      date: new Date(b.date || b.createdAt || Date.now()).toISOString().slice(0, 10),
+      time: `${b.start_time || b.startTime || "—"}–${b.end_time || b.endTime || "—"}`,
       status: String(b.status || "pending"),
     }));
 
-    // แจ้งเตือนเล็กน้อย
     const notifications = [
       `รายการรออนุมัติวันนี้: ${pendingToday}`,
       `จำนวนผู้ใช้งานปัจจุบัน: ${activeNow}/${totalUsers}`,
     ];
 
-    // ====== ส่งออก ======
     return res.json({
       kpi: {
         totalRooms,
@@ -150,7 +157,7 @@ router.get("/metrics", auth, requireAdmin, async (_req, res) => {
         { id: "Active", label: "Active", value: activeNow },
         { id: "Non Active", label: "Non Active", value: nonActiveNow },
       ],
-      roomsPie: roomsAggRaw, // [{id,label,value}]
+      roomsPie, // ✅ มีข้อมูลเสมอ (เดือนนี้ หรือย้อนหลัง 30 วัน)
       recent,
       notifications,
     });
@@ -160,11 +167,9 @@ router.get("/metrics", auth, requireAdmin, async (_req, res) => {
   }
 });
 
-
 // ========== Monthly Line Series (by room) ==========
 router.get("/monthly-series", auth, requireAdmin, async (_req, res) => {
   try {
-    // ✅ ฟิกซ์ลำดับเดือน Jan → Dec เสมอ (ปีปัจจุบัน)
     const months = [
       { key: 1, label: "Jan" }, { key: 2, label: "Feb" }, { key: 3, label: "Mar" },
       { key: 4, label: "Apr" }, { key: 5, label: "May" }, { key: 6, label: "Jun" },
@@ -200,7 +205,6 @@ router.get("/monthly-series", auth, requireAdmin, async (_req, res) => {
       { $project: { y: "$_id.y", m: "$_id.m", roomCode: "$room.code", value: 1, _id: 0 } },
     ]);
 
-    // { roomCode: Map<monthNumber, value> }
     const byRoom = new Map();
     for (const r of agg) {
       const room = r.roomCode || "Unknown";
