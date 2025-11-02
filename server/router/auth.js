@@ -549,56 +549,64 @@ router.post("/logout", auth, async (req, res) => {
 });
 
 
-/* --------------- VERIFY BY GOOGLE (Email only) --------------- */
+/* --------------- VERIFY BY GOOGLE (Email only) --------------- */ 
 router.post("/verify-google-email", async (req, res) => {
-    try {
-        const expectedEmail = String(req.body.expectedEmail || "")
-            .trim()
-            .toLowerCase();
+  try {
+    // ✅ ป้องกัน credential undefined
+    const { credential, expectedEmail } = req.body || {};
+    const expected = String(expectedEmail || "").trim().toLowerCase();
 
-        const ticket = await client.verifyIdToken({
-            idToken: credential,
-            audience: process.env.GOOGLE_CLIENT_ID,
-        });
-
-        const payload = ticket.getPayload();
-        const email = String(payload?.email || "").toLowerCase();
-        const email_verified = payload?.email_verified;
-        const googleId = payload?.sub;
-
-        if (!email_verified)
-            return res.status(400).json({ error: "Email not verified by Google" });
-        if (email !== expectedEmail)
-            return res.status(400).json({ error: "Email mismatch" });
-
-        let user = await User.findOneAndUpdate(
-            { email },
-            {
-                $set: {
-                    emailVerified: true,
-                    verifiedAt: new Date(),
-                    verificationMethod: "google",
-                    googleId,
-                    isKmitl: email.endsWith("@kmitl.ac.th"),
-                },
-            },
-            { new: true }
-        );
-
-        if (!user) {
-            const pending = await PendingUser.findOne({ email });
-            if (pending) {
-                pending.googleVerified = true;
-                await pending.save();
-            }
-        }
-
-        return res.json({ email, verified: true ,emailVerified: true});
-    } catch (err) {
-        console.error("verify-google-email error:", err);
-        // return res.status(401).json({ error: "Invalid Google token" });
+    if (!credential) {
+      return res.status(400).json({ error: "Missing Google credential" });
     }
+
+    // ✅ ตรวจสอบ token จาก Google
+    const ticket = await client.verifyIdToken({
+      idToken: credential, // <-- ใช้ค่าจาก body แทนตัวแปรที่ไม่ถูกประกาศ
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const email = String(payload?.email || "").toLowerCase();
+    const email_verified = payload?.email_verified;
+    const googleId = payload?.sub;
+
+    if (!email_verified)
+      return res.status(400).json({ error: "Email not verified by Google" });
+    if (email !== expected)
+      return res.status(400).json({ error: "Email mismatch" });
+
+    // ✅ อัปเดต user ถ้ามีอยู่แล้ว
+    let user = await User.findOneAndUpdate(
+      { email },
+      {
+        $set: {
+          emailVerified: true,
+          verifiedAt: new Date(),
+          verificationMethod: "google",
+          googleId,
+          isKmitl: email.endsWith("@kmitl.ac.th"),
+        },
+      },
+      { new: true }
+    );
+
+    // ✅ ถ้ายังไม่มี user ให้เช็ก PendingUser แทน
+    if (!user) {
+      const pending = await PendingUser.findOne({ email });
+      if (pending) {
+        pending.googleVerified = true;
+        await pending.save();
+      }
+    }
+
+    return res.json({ email, verified: true, emailVerified: true });
+  } catch (err) {
+    console.error("verify-google-email error:", err);
+    return res.status(401).json({ error: "Invalid Google token" });
+  }
 });
+
 
 // router/auth.js
 router.get("/check-email", async (req, res) => {
