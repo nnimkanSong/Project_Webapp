@@ -555,12 +555,6 @@ router.post("/verify-google-email", async (req, res) => {
         const expectedEmail = String(req.body.expectedEmail || "")
             .trim()
             .toLowerCase();
-        const credential = req.body.credential;
-        if (!credential || !expectedEmail) {
-            return res
-                .status(400)
-                .json({ error: "Missing credential or expectedEmail" });
-        }
 
         const ticket = await client.verifyIdToken({
             idToken: credential,
