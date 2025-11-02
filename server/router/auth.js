@@ -596,7 +596,7 @@ router.post("/verify-google-email", async (req, res) => {
         return res.json({ email, verified: true ,emailVerified: true});
     } catch (err) {
         console.error("verify-google-email error:", err);
-        return res.status(401).json({ error: "Invalid Google token" });
+        // return res.status(401).json({ error: "Invalid Google token" });
     }
 });
 
